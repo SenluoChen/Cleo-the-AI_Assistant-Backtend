@@ -1,0 +1,21 @@
+# Global ignores
+.DS_Store
+Thumbs.db
+
+# Node.js dependencies and build output
+desktop/node_modules/
+desktop/dist/
+desktop/release/
+
+# Test and tooling artifacts
+desktop/playwright-report/
+desktop/test-results/
+desktop/coverage/
+
+# Environment files
+desktop/.env
+desktop/.env.production
+
+# Logs and misc
+*.log
+*.tsbuildinfo
