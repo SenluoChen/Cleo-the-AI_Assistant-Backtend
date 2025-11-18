@@ -2,7 +2,7 @@ import "dotenv/config";
 import "./polyfills";
 import { app, ipcMain, globalShortcut, BrowserWindow } from "electron";
 import type { Event as ElectronEvent } from "electron";
-import { createMainWindow } from "./windows";
+import { createBubbleWindow } from "./windows";
 import { captureFullScreenBase64 } from "./screenshot";
 import { Channels } from "../common/ipc";
 import * as path from "node:path";
@@ -55,8 +55,49 @@ app.setPath("cache", cachePath);
 app.setPath("temp", tempPath);
 
 let mainWin: BrowserWindow | null = null;
+let bubbleWin: BrowserWindow | null = null;
 let isPinned = readPinnedState();
 let isQuitting = false;
+
+const resolveDistPath = (...segments: string[]): string => {
+  const appPath = app.getAppPath();
+  return path.join(appPath, "dist", ...segments);
+};
+
+const createMainWindow = (): BrowserWindow => {
+  const win = new BrowserWindow({
+    width: 980,
+    height: 720,
+    show: false,
+    frame: false,
+    transparent: false,
+    backgroundColor: "#f3f4f6",
+    webPreferences: {
+      preload: resolveDistPath("preload", "preload-main.js"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  win.loadFile(resolveDistPath("renderer", "index.html"));
+  win.webContents.once("did-finish-load", () => {
+    win.webContents
+      .executeJavaScript("Boolean(window.api)")
+      .then((hasApi) => {
+        log("[DEBUG] renderer api available:", hasApi);
+      })
+      .catch((error) => {
+        err("[DEBUG] renderer api check failed", error);
+      });
+  });
+  win.webContents.on("console-message", (_event, level, message) => {
+    log(`[DEBUG][MAIN-RENDERER][${level}]`, message);
+  });
+  win.webContents.on("preload-error", (_event, preloadPath, error) => {
+    err("[DEBUG][MAIN-RENDERER] preload error", preloadPath, error);
+  });
+  return win;
+};
 
 const notifyRendererPinnedState = (win: BrowserWindow, pinned: boolean) => {
   if (win.webContents.isDestroyed()) {
@@ -90,25 +131,50 @@ const applyPinnedState = (win: BrowserWindow, pinned: boolean) => {
     win.setFullScreenable(!pinned);
   }
 
-  if (pinned) {
-    if (win.isMinimized()) {
-      win.restore();
-    }
-    if (!win.isVisible()) {
-      win.show();
-    } else if (typeof win.showInactive === "function") {
-      win.showInactive();
-    }
-    win.moveTop();
-  }
-
   notifyRendererPinnedState(win, pinned);
 };
-// let bubbleWin: BrowserWindow | null = null;
+const ensureBubbleWindow = () => {
+  if (bubbleWin && !bubbleWin.isDestroyed()) {
+    return bubbleWin;
+  }
+
+  bubbleWin = createBubbleWindow();
+  bubbleWin.on("closed", () => {
+    bubbleWin = null;
+  });
+  return bubbleWin;
+};
+
+const showMainWindow = (focus = true) => {
+  if (!mainWin || mainWin.isDestroyed()) {
+    return;
+  }
+
+  if (mainWin.isMinimized()) {
+    mainWin.restore();
+  }
+
+  if (!mainWin.isVisible()) {
+    mainWin.show();
+  }
+
+  if (focus) {
+    mainWin.focus();
+  }
+
+  if (!isPinned && typeof mainWin.moveTop === "function") {
+    mainWin.moveTop();
+  }
+
+  if (isPinned) {
+    applyPinnedState(mainWin, true);
+  }
+};
 
 app.whenReady().then(() => {
   mainWin = createMainWindow();
-  // 不再建立 bubble window
+  ensureBubbleWindow();
+
   if (mainWin) {
     applyPinnedState(mainWin, isPinned);
   }
@@ -117,10 +183,32 @@ app.whenReady().then(() => {
 
   const captureEnabled = process.env.SMART_ASSISTANT_ENABLE_SCREEN_CAPTURE === "true";
 
-  // Keep the main window always available; no global shortcut toggle.
-
   ipcMain.on(Channels.TOGGLE_MAIN, () => {
-    // No-op: main window should stay visible.
+    ensureBubbleWindow();
+    if (!mainWin || mainWin.isDestroyed()) {
+      mainWin = createMainWindow();
+      applyPinnedState(mainWin, isPinned);
+      mainWin.once("ready-to-show", () => {
+        showMainWindow(true);
+      });
+      return;
+    }
+
+    const shouldHide = mainWin.isVisible() && !mainWin.isMinimized();
+
+    if (shouldHide) {
+      mainWin.hide();
+      return;
+    }
+
+    if (!mainWin.webContents.isLoadingMainFrame()) {
+      showMainWindow(true);
+    } else {
+      const handleFinish = () => {
+        showMainWindow(true);
+      };
+      mainWin.webContents.once("did-finish-load", handleFinish);
+    }
   });
 
   ipcMain.handle("capture-screen", async () => {
@@ -180,8 +268,12 @@ app.whenReady().then(() => {
   });
 
   mainWin.on("close", (event) => {
-    if (isQuitting || !isPinned) return;
+    if (isQuitting) return;
     event.preventDefault();
+    if (!isPinned) {
+      mainWin?.hide();
+      return;
+    }
     mainWin?.show();
   });
 
@@ -207,6 +299,10 @@ app.whenReady().then(() => {
     }
   });
 
+  mainWin.on("closed", () => {
+    mainWin = null;
+  });
+
   app.on("browser-window-blur", (_event, win) => {
     if (win === mainWin && isPinned && !isQuitting) {
       applyPinnedState(mainWin, true);
@@ -219,7 +315,13 @@ app.whenReady().then(() => {
     }
   });
   app.on("activate", () => {
-    if (mainWin === null) mainWin = createMainWindow();
+    ensureBubbleWindow();
+    if (!mainWin || mainWin.isDestroyed()) {
+      mainWin = createMainWindow();
+      applyPinnedState(mainWin, isPinned);
+      return;
+    }
+    showMainWindow(true);
   });
 });
 

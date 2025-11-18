@@ -34,12 +34,39 @@ export function createBubbleWindow(): BrowserWindow {
     alwaysOnTop: true,
     hasShadow: false,
     backgroundColor: "#00000000",
+    skipTaskbar: true,
+    focusable: false,
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload-bubble.js"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      devTools: false
     }
   });
   bubble.loadFile(path.join(__dirname, "../renderer/bubble.html"));
+  bubble.webContents.once("did-finish-load", () => {
+    const script = `(() => {
+      const api = window.bubbleAPI;
+      return { exists: Boolean(api), keys: api ? Object.keys(api) : [] };
+    })()`;
+    bubble.webContents
+      .executeJavaScript(script)
+      .then((result) => {
+        console.log("[DEBUG] bubbleAPI inspect:", result);
+      })
+      .catch((error) => {
+        console.error("[DEBUG] bubbleAPI check failed", error);
+      });
+  });
+  bubble.webContents.on("console-message", (_event, level, message) => {
+    console.log(`[DEBUG][BUBBLE][${level}]`, message);
+  });
+  bubble.webContents.on("preload-error", (_event, preloadPath, error) => {
+    console.error("[DEBUG][BUBBLE] preload error", preloadPath, error);
+  });
+  bubble.setAlwaysOnTop(true, "screen-saver");
+  if (typeof bubble.setVisibleOnAllWorkspaces === "function") {
+    bubble.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
   return bubble;
 }

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import MessageList from "./components/MessageList";
-import InputBar from "./components/InputBar";
+import ChatWindow from "./components/ChatWindow";
 import { useUI } from "./store/ui";
 import "./styles/app.css";
 
@@ -19,6 +18,7 @@ const projectLinks = [
 export default function App() {
   const { pinned, setPinned } = useUI();
   const [pinning, setPinning] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -57,9 +57,17 @@ export default function App() {
     }
   }, [pinned, setPinned, pinning]);
 
+  const handleSidebarToggle = useCallback(() => {
+    setSidebarOpen((prev) => !prev);
+  }, []);
+
+  const handleSidebarClose = useCallback(() => {
+    setSidebarOpen(false);
+  }, []);
+
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div className={`app-shell ${sidebarOpen ? "" : "app-shell--sidebar-collapsed"}`}>
+      <aside className="sidebar" aria-hidden={!sidebarOpen}>
         <div className="sidebar__brand">
           <div className="sidebar__logo">SA</div>
           <div>
@@ -67,6 +75,10 @@ export default function App() {
             <p className="sidebar__title">你的策略夥伴</p>
           </div>
         </div>
+
+        <button type="button" className="sidebar__collapse" onClick={handleSidebarClose}>
+          收起選單
+        </button>
 
         <button className="sidebar__new-chat">＋ 建立新對話</button>
 
@@ -101,6 +113,15 @@ export default function App() {
 
       <div className="workspace">
         <div className="workspace__top-bar">
+          <button
+            type="button"
+            className={`sidebar-toggle ${sidebarOpen ? "is-open" : ""}`}
+            onClick={handleSidebarToggle}
+            aria-expanded={sidebarOpen}
+          >
+            <span aria-hidden="true">☰</span>
+            {sidebarOpen ? "收起選單" : "開啟選單"}
+          </button>
           <div className="workspace__drag-region" aria-hidden="true" />
           <button
             type="button"
@@ -126,16 +147,9 @@ export default function App() {
 
         <main className="workspace__conversation">
           <div className="conversation-card">
-            <MessageList />
+            <ChatWindow />
           </div>
         </main>
-
-        <footer className="workspace__composer">
-          <div className="conversation-card conversation-card--composer">
-            <InputBar />
-            <p className="composer__hint">Enter 傳送 · Shift + Enter 換行 · 支援貼上螢幕截圖</p>
-          </div>
-        </footer>
       </div>
     </div>
   );

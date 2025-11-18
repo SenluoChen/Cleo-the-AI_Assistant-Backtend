@@ -15,6 +15,7 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
     },
     build: {
+      target: "node18",
       outDir: path.resolve(__dirname, "dist/renderer"),
       emptyOutDir: true,
       sourcemap: true,
