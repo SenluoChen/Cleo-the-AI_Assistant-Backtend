@@ -1,0 +1,86 @@
+{
+  "name": "smart-assistant-desktop",
+  "version": "1.0.0",
+  "description": "Smart Assistant Desktop Application",
+  "main": "dist/main/main.js",
+  "author": "Your Name",
+  "license": "MIT",
+  "homepage": "./",
+  "scripts": {
+    "dev": "concurrently -k -r -n \"tsc,renderer,electron\" -c \"cyan.bold,magenta.bold,green.bold\" \"npm:dev:tsc\" \"npm:dev:vite\" \"npm:dev:electron\"",
+    "dev:tsc": "tsc -w -p tsconfig.node.json",
+    "start": "npm run build && electron .",
+    "dev:vite": "vite build --watch --mode development",
+    "dev:electron": "wait-on file:dist/main/main.js file:dist/preload/preload-main.js file:dist/renderer/index.html file:dist/renderer/bubble.html && electron .",
+    "build": "npm run build:vite && npm run build:electron",
+    "build:vite": "vite build",
+    "build:electron": "tsc -p tsconfig.node.json",
+    "build:dist": "npm run build && electron-builder",
+    "build:dir": "npm run build && electron-builder --dir",
+    "preview": "vite preview",
+    "lint": "eslint src --ext .ts,.tsx,.js,.jsx",
+    "lint:fix": "eslint src --ext .ts,.tsx,.js,.jsx --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,scss,md}\"",
+    "test": "vitest",
+    "test:unit": "vitest run --reporter=verbose tests/unit",
+    "test:e2e": "playwright test tests/e2e",
+    "clean": "rimraf dist",
+    "check": "npm run lint && npm run test:unit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.1",
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@typescript-eslint/eslint-plugin": "^6.14.0",
+    "@typescript-eslint/parser": "^6.14.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
+    "eslint": "^8.55.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-react": "^7.33.2",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "prettier": "^3.1.1",
+    "rimraf": "^5.0.5",
+    "typescript": "5.3.3",
+    "vite": "^5.0.8",
+    "vite-plugin-electron": "^0.28.2",
+    "vite-plugin-electron-renderer": "^0.14.5",
+    "vitest": "^1.0.4",
+    "wait-on": "^7.2.0"
+  },
+  "dependencies": {
+    "electron-log": "^5.0.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "undici": "^7.16.0",
+    "zod": "^3.22.4",
+    "zustand": "^4.4.7"
+  },
+  "build": {
+    "appId": "com.yourcompany.smart-assistant",
+    "productName": "Smart Assistant",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "build/icon.png"
+    }
+  }
+}

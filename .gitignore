@@ -1,1 +1,25 @@
+<<<<<<< HEAD
 node_modules
+=======
+# Global ignores
+.DS_Store
+Thumbs.db
+
+# Node.js dependencies and build output
+desktop/node_modules/
+desktop/dist/
+desktop/release/
+
+# Test and tooling artifacts
+desktop/playwright-report/
+desktop/test-results/
+desktop/coverage/
+
+# Environment files
+desktop/.env
+desktop/.env.production
+
+# Logs and misc
+*.log
+*.tsbuildinfo
+>>>>>>> a79a39064baa09c0398a3311d505e8056b8dfd7b
