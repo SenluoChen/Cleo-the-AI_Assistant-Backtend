@@ -5,13 +5,9 @@ Electron + React desktop companion for the Smart Assistant experience. The rende
 ## Project Layout
 
 ```
-smart-assistant/
-├─ desktop/        # Electron + Vite application source
-│  ├─ src/         # Main process, preload, renderer, shared code
-│  ├─ tests/       # Vitest unit specs and Playwright E2E suite
-│  ├─ build/       # Application icons and packaging assets
-│  └─ vite.config  # Vite configuration for the renderer bundle
-└─ README.md
+smart-assistant Backend/
+├─ backend/                  # Local API + backend services
+└─ web/smart-assistant/desktop/ # Electron + Vite application (ONLY frontend)
 ```
 
 ## Prerequisites
@@ -23,7 +19,7 @@ smart-assistant/
 ## Getting Started
 
 ```powershell
-cd desktop
+cd web/smart-assistant/desktop
 npm install
 ```
 
@@ -56,7 +52,7 @@ npm run test:e2e       # Playwright E2E tests (requires browsers installed)
 
 ## Environment Variables
 
-Duplicate `.env.example` to `.env` (development) or `.env.production` (packaged builds) inside the `desktop` directory.
+Duplicate `.env.example` to `.env` (development) or `.env.production` (packaged builds) inside `web/smart-assistant/desktop`.
 
 | Variable | Description |
 | --- | --- |
@@ -65,7 +61,7 @@ Duplicate `.env.example` to `.env` (development) or `.env.production` (packaged 
 
 ## Packaging Notes
 
-Electron Builder configuration lives in `desktop/electron-builder.yml`. Generated installers are written to `desktop/release/` (ignored by Git).
+Electron Builder configuration lives in `web/smart-assistant/desktop/electron-builder.yml`. Generated installers are written to `web/smart-assistant/desktop/release/` (ignored by Git).
 
 ## Contributing
 
