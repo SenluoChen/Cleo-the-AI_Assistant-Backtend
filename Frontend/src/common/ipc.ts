@@ -1,0 +1,6 @@
+export const Channels = {
+  TOGGLE_MAIN: "TOGGLE_MAIN",
+  SET_PIN_STATE: "SET_PIN_STATE",
+  GET_PIN_STATE: "GET_PIN_STATE",
+  PIN_STATE_UPDATED: "PIN_STATE_UPDATED"
+} as const;
