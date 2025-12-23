@@ -2,19 +2,23 @@
 .DS_Store
 Thumbs.db
 
-# Node.js dependencies and build output (only frontend lives under web/smart-assistant/desktop)
-web/smart-assistant/desktop/node_modules/
-web/smart-assistant/desktop/dist/
-web/smart-assistant/desktop/release/
+# Node.js dependencies and build output (frontend lives under Frontend/)
+Frontend/node_modules/
+Frontend/dist/
+Frontend/release/
 
 # Test and tooling artifacts
-web/smart-assistant/desktop/playwright-report/
-web/smart-assistant/desktop/test-results/
-web/smart-assistant/desktop/coverage/
+Frontend/playwright-report/
+Frontend/test-results/
+Frontend/coverage/
 
 # Environment files
-web/smart-assistant/desktop/.env
-web/smart-assistant/desktop/.env.production
+Frontend/.env
+Frontend/.env.production
+
+# Backend environment files (may contain secrets)
+backend/.env
+backend/.env.*
 
 # Logs and misc
 *.log

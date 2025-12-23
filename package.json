@@ -1,0 +1,22 @@
+{
+  "name": "smart-assistant",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Smart Assistant monorepo (Electron desktop + local API backend)",
+  "scripts": {
+    "dev": "concurrently -k -r -n backend,frontend \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev:backend": "node backend/dist/local-api.js",
+    "dev:frontend": "wait-on http://127.0.0.1:8787/health && npm --prefix Frontend run dev",
+
+    "install:frontend": "npm --prefix Frontend install",
+    "install:backend": "npm --prefix backend install",
+    "install:all": "npm run install:backend && npm run install:frontend",
+
+    "test": "npm --prefix Frontend test",
+    "lint": "npm --prefix Frontend run lint"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "wait-on": "^8.0.5"
+  }
+}
