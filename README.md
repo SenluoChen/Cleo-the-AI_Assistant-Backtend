@@ -1,4 +1,4 @@
-# Smart Assistant Frontend
+# Cleo the Smart Assistant Backend
 
 Electron + React desktop companion for the Smart Assistant experience. The renderer delivers a modern chat UI, while the Electron main process manages native capabilities such as window pinning and screen capture.
 
@@ -7,7 +7,7 @@ Electron + React desktop companion for the Smart Assistant experience. The rende
 ```
 smart-assistant Backend/
 ├─ backend/                  # Local API + backend services
-└─ web/smart-assistant/desktop/ # Electron + Vite application (ONLY frontend)
+└─ web/smart-assistant/Frontend/ # Electron + Vite application (ONLY frontend)
 ```
 
 ## Prerequisites
@@ -19,7 +19,7 @@ smart-assistant Backend/
 ## Getting Started
 
 ```powershell
-cd web/smart-assistant/desktop
+cd web/smart-assistant/Frontend
 npm install
 ```
 
@@ -35,36 +35,64 @@ The dev task:
 - Launches Electron once the renderer is ready.
 
 ### Production build
+# Smart Assistant
 
-```powershell
-npm run build          # Produces dist/main + dist/preload + renderer bundle
-npm start              # Launches the compiled app locally
-npm run build:dist     # Optional: package installers via electron-builder
+Desktop smart assistant (Electron + React) with a local API backend that proxies to OpenAI.
+
+## Repo Structure (frontend/backend separated)
+
+```
+.
+├─ Frontend/   # Electron + Vite + React (desktop app)
+├─ backend/    # Local API server (Node)
+└─ infra/      # Infrastructure (optional)
 ```
 
-### Quality gates
+## Prerequisites
+
+- Node.js 18+ (Electron 28 requires a modern runtime)
+- npm 9+
+
+## Quick Start (recommended)
+
+From the repo root:
 
 ```powershell
-npm run lint           # ESLint rules for TypeScript + React
-npm run test:unit      # Vitest unit suite
-npm run test:e2e       # Playwright E2E tests (requires browsers installed)
+npm install
+npm run install:all
+npm run dev
+```
+
+What `npm run dev` does:
+
+- Starts backend local API at `http://127.0.0.1:8787`
+- Waits for `/health`
+- Starts the Electron desktop app dev workflow
+
+## Manual Start (two terminals)
+
+Terminal A:
+
+```powershell
+cd backend
+node .\dist\local-api.js
+```
+
+Terminal B:
+
+```powershell
+cd Frontend
+npm run dev
 ```
 
 ## Environment Variables
 
-Duplicate `.env.example` to `.env` (development) or `.env.production` (packaged builds) inside `web/smart-assistant/desktop`.
+Backend: `backend/.env`
 
-| Variable | Description |
-| --- | --- |
-| `VITE_ANALYZE_URL` | API endpoint consumed by the renderer client. |
-| `SMART_ASSISTANT_ENABLE_SCREEN_CAPTURE` | Set to `true` to allow native screen capture functionality. |
+- `OPENAI_API_KEY` (required for real responses)
+- `MOCK_OPENAI=true` (force mock responses)
+- `LOCAL_API_PORT=8787` (optional)
 
-## Packaging Notes
+Frontend: `Frontend/.env` (optional)
 
-Electron Builder configuration lives in `web/smart-assistant/desktop/electron-builder.yml`. Generated installers are written to `web/smart-assistant/desktop/release/` (ignored by Git).
-
-## Contributing
-
-1. Fork the repo and create a feature branch.
-2. Run `npm run lint` and the relevant test suite before opening a PR.
-3. Keep pull requests focused and include screenshots or recordings when UI changes are involved.
+- `VITE_ANALYZE_URL` (optional; defaults to `http://127.0.0.1:8787/analyze`)

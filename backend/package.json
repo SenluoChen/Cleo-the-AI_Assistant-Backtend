@@ -1,0 +1,16 @@
+{
+  "name": "smart-assistant-backend",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Local API server that proxies to OpenAI.",
+  "scripts": {
+    "dev": "node dist/local-api.js",
+    "start": "node dist/local-api.js",
+    "test:integration": "node dist/test-integration.js",
+    "test:analyze": "node dist/test-analyze.js"
+  },
+  "dependencies": {
+    "aws-sdk": "2.1692.0",
+    "openai": "4.104.0"
+  }
+}
