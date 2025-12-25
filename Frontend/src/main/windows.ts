@@ -15,6 +15,13 @@ export function createMainWindow(): BrowserWindow {
       nodeIntegration: false
     }
   });
+
+  // Exclude our window from OS-level screen capture/screenshot where supported.
+  try {
+    win.setContentProtection(true);
+  } catch {
+    // ignore
+  }
   win.loadFile(path.join(__dirname, "../renderer/index.html"));
   return win;
 }
@@ -43,6 +50,13 @@ export function createBubbleWindow(): BrowserWindow {
       devTools: false
     }
   });
+
+  // Exclude bubble from screenshots/screen capture where supported.
+  try {
+    bubble.setContentProtection(true);
+  } catch {
+    // ignore
+  }
   bubble.loadFile(path.join(__dirname, "../renderer/bubble.html"));
   bubble.webContents.once("did-finish-load", () => {
     const script = `(() => {

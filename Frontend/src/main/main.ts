@@ -59,9 +59,11 @@ let bubbleWin: BrowserWindow | null = null;
 let isPinned = readPinnedState();
 let isQuitting = false;
 
+// In dev, compiled entrypoints live in dist/main and assets in dist/{renderer,preload}.
+// In production, the same relative layout is preserved inside the packaged app.
+const distRoot = path.resolve(__dirname, "..");
 const resolveDistPath = (...segments: string[]): string => {
-  const appPath = app.getAppPath();
-  return path.join(appPath, "dist", ...segments);
+  return path.join(distRoot, ...segments);
 };
 
 const createMainWindow = (): BrowserWindow => {
@@ -78,6 +80,14 @@ const createMainWindow = (): BrowserWindow => {
       nodeIntegration: false
     }
   });
+
+  // Exclude our window from OS-level screen capture/screenshot where supported (Windows/macOS).
+  // This avoids needing to hide the window to keep it out of the screenshot.
+  try {
+    win.setContentProtection(true);
+  } catch {
+    // ignore
+  }
 
   win.loadFile(resolveDistPath("renderer", "index.html"));
   win.webContents.once("did-finish-load", () => {
@@ -215,7 +225,9 @@ app.whenReady().then(() => {
 
   log("Application ready");
 
-  const captureEnabled = process.env.SMART_ASSISTANT_ENABLE_SCREEN_CAPTURE === "true";
+  // Default to enabled in dev; allow opt-out via env.
+  // Set SMART_ASSISTANT_ENABLE_SCREEN_CAPTURE=false to disable.
+  const captureEnabled = process.env.SMART_ASSISTANT_ENABLE_SCREEN_CAPTURE !== "false";
 
   ipcMain.on(Channels.TOGGLE_MAIN, () => {
     ensureBubbleWindow();
@@ -251,9 +263,19 @@ app.whenReady().then(() => {
       return "";
     }
 
-    const win = BrowserWindow.getFocusedWindow() ?? mainWin;
+    // Ensure all app windows are marked as excluded from capture.
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (w.isDestroyed()) continue;
+      try {
+        w.setContentProtection(true);
+      } catch {
+        // ignore
+      }
+    }
+
     try {
-      return await captureFullScreenBase64(win ?? undefined);
+      const b64 = await captureFullScreenBase64(undefined);
+      return `data:image/png;base64,${b64}`;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       err("capture-screen failed:", message);

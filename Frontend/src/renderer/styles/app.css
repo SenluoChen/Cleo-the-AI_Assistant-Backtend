@@ -469,6 +469,37 @@ body {
   padding: 12px 14px;
 }
 
+.composer-screenshot-preview {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(10px);
+  overflow: hidden;
+  transition: max-height 180ms ease, opacity 180ms ease, transform 180ms ease;
+  margin-bottom: 0;
+}
+
+.composer-screenshot-preview.is-visible {
+  max-height: 220px;
+  opacity: 1;
+  transform: translateY(0);
+  margin-bottom: 10px;
+}
+
+.composer-screenshot-preview img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.composer-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .composer-form {
   display: flex;
   gap: 10px;
@@ -503,6 +534,44 @@ body {
   opacity: 0.4;
   cursor: default;
 }
+
+.composer-send {
+  background: linear-gradient(180deg, #2563eb 0%, #1e40af 100%);
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.18), inset 0 -2px 0 rgba(0,0,0,0.06);
+  transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+.composer-send:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 30px rgba(37, 99, 235, 0.22), inset 0 -2px 0 rgba(0,0,0,0.06);
+}
+
+.composer-screenshot {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  background: rgba(37, 99, 235, 0.04);
+  color: #0f172a;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 120ms ease, transform 120ms ease, border-color 120ms ease;
+}
+
+.composer-screenshot:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.composer-screenshot:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.08);
+  transform: translateY(-1px);
+  border-color: rgba(37, 99, 235, 0.22);
+}
+
+.composer-screenshot .btn-icon svg { display: block; color: #0f172a; }
+.composer-screenshot .btn-label { font-weight: 600; }
 
 .thinking-bubble {
   display: inline-flex;

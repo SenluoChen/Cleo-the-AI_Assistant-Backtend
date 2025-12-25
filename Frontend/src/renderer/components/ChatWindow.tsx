@@ -88,15 +88,28 @@ export default function ChatWindow() {
       const trimmed = text.trim();
       if (!trimmed) return;
 
+      const history = [...messages]
+        .filter((msg) => (msg.role === "user" || msg.role === "assistant") && msg.content.trim().length > 0)
+        .map((msg) => ({ role: msg.role, content: msg.content }));
+
+      const payload = {
+        question: trimmed,
+        messages: [...history, { role: "user" as const, content: trimmed }],
+        image: screenshot ?? undefined
+      };
+
       setPushing(true);
       addMessage({ role: "user", content: trimmed });
       setDraft("");
+      if (screenshot) {
+        setScreenshot(null);
+      }
 
       // Create assistant placeholder so we can stream into it.
       addMessage({ role: "assistant", content: "" });
 
       try {
-        for await (const delta of analyzeStream({ question: trimmed })) {
+        for await (const delta of analyzeStream(payload)) {
           appendToLastAssistant(delta);
         }
       } catch (error: unknown) {
@@ -105,7 +118,7 @@ export default function ChatWindow() {
         setPushing(false);
       }
     },
-    [addMessage, setPushing, appendToLastAssistant, setLastAssistantContent]
+    [messages, screenshot, addMessage, setScreenshot, setPushing, appendToLastAssistant, setLastAssistantContent]
   );
 
   const handleSubmit = useCallback(
@@ -158,19 +171,16 @@ export default function ChatWindow() {
           </div>
         ))}
 
-        {/* Image preview */}
-        {screenshot && (
-          <div className="bubble bubble--preview">
-            <img src={screenshot} alt="pasted screenshot" />
-          </div>
-        )}
-
         {/* AI thinking animation */}
         {pushing && <ThinkingBubble />}
       </div>
 
       {/* Composer */}
       <div className="chat-composer">
+        <div className={`composer-screenshot-preview ${screenshot ? "is-visible" : ""}`}>
+          {screenshot && <img src={screenshot} alt="screenshot preview" />}
+        </div>
+
         <form onSubmit={handleSubmit} className="composer-form">
           <input
             name="message"
@@ -182,13 +192,44 @@ export default function ChatWindow() {
             onPaste={handlePaste}
           />
 
-          <button
-            type="submit"
-            className="composer-send"
-            disabled={pushing || !draft.trim()}
-          >
-            {pushing ? "..." : "Send"}
-          </button>
+          <div className="composer-actions">
+            <button
+              type="submit"
+              className="composer-send"
+              disabled={pushing || !draft.trim()}
+              aria-label="Send message"
+            >
+              {pushing ? "..." : "Send"}
+            </button>
+
+            <button
+              type="button"
+              className="composer-screenshot"
+              onClick={async () => {
+                try {
+                  const data = await window.api?.captureScreen?.();
+                  if (data) {
+                    const text = String(data);
+                    const dataUrl = text.startsWith("data:") ? text : `data:image/png;base64,${text}`;
+                    setScreenshot(dataUrl);
+                  }
+                } catch (err) {
+                  console.error("Screenshot failed", err);
+                }
+              }}
+              title="截圖"
+              aria-label="截圖"
+              disabled={pushing || !window.api?.captureScreen}
+            >
+              <span className="btn-icon" aria-hidden>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M4 7H6L7 5H17L18 7H20C21.1046 7 22 7.89543 22 9V18C22 19.1046 21.1046 20 20 20H4C2.89543 20 2 19.1046 2 18V9C2 7.89543 2.89543 7 4 7Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <circle cx="12" cy="13" r="3" stroke="currentColor" strokeWidth="1.2"/>
+                </svg>
+              </span>
+              <span className="btn-label">截圖</span>
+            </button>
+          </div>
         </form>
       </div>
     </div>

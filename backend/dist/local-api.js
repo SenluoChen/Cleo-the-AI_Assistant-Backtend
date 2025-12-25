@@ -129,7 +129,8 @@ const server = http.createServer(async (req, res) => {
       }
 
       const question = parsed?.question;
-      if (!question) {
+      const messages = parsed?.messages;
+      if (!question && (!Array.isArray(messages) || messages.length === 0)) {
         return sendJson(res, 400, { error: "Missing question" });
       }
 
@@ -146,7 +147,8 @@ const server = http.createServer(async (req, res) => {
       writeSse(res, "meta", { ok: true });
 
       try {
-        for await (const chunk of streamAnswer(question)) {
+        const input = Array.isArray(messages) && messages.length > 0 ? { question, messages, image: parsed?.image } : { question, image: parsed?.image };
+        for await (const chunk of streamAnswer(input)) {
           writeSse(res, "delta", { delta: chunk });
         }
         writeSse(res, "done", { done: true });

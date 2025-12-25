@@ -1,5 +1,8 @@
 import AWS from 'aws-sdk';
 import OpenAI from 'openai';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 const secrets = new AWS.SecretsManager();
 let client = null;
 async function getClient() {
@@ -40,7 +43,55 @@ async function getClient() {
     return client;
 }
 
-export async function* streamAnswer(question) {
+function sanitizeHistoryMessages(messages) {
+    if (!Array.isArray(messages))
+        return [];
+    return messages
+        .filter((m) => m && typeof m === 'object')
+        .map((m) => {
+        const role = m.role === 'assistant' ? 'assistant' : 'user';
+        const content = typeof m.content === 'string' ? m.content : String(m.content ?? '');
+        return { role, content };
+    })
+        .filter((m) => m.content.trim().length > 0);
+}
+
+function normalizeImageDataUrl(image) {
+    if (!image)
+        return null;
+    const raw = String(image).trim();
+    if (!raw)
+        return null;
+    if (raw.startsWith('data:image/'))
+        return raw;
+    // Accept data URL of any type and pass through.
+    if (raw.startsWith('data:') && raw.includes(';base64,'))
+        return raw;
+    // Raw base64 -> assume PNG.
+    const b64 = raw.replace(/^data:.*;base64,/, '');
+    return `data:image/png;base64,${b64}`;
+}
+
+function trySaveScreenshotToTemp(image) {
+    if (!image)
+        return null;
+    try {
+        // Accept data URL or raw base64
+        const m = String(image).match(/^data:(image\/[^;]+);base64,(.+)$/);
+        const mime = m ? m[1] : 'image/png';
+        const b64 = m ? m[2] : String(image).replace(/^data:.*;base64,/, '');
+        const ext = (mime.split('/')[1] || 'png').replace('jpeg', 'jpg');
+        const filename = `screenshot-${Date.now()}.${ext}`;
+        const filePath = path.join(os.tmpdir(), filename);
+        fs.writeFileSync(filePath, Buffer.from(b64, 'base64'));
+        return filePath;
+    }
+    catch {
+        return null;
+    }
+}
+
+export async function* streamAnswer(input) {
     const openai = await getClient();
     const streamStart = Date.now();
     let seenFirstDelta = false;
@@ -51,19 +102,60 @@ export async function* streamAnswer(question) {
         "Keep structure clean: use short sections and whitespace; avoid huge unbroken text blocks.",
     ].join("\n");
 
+    const question = typeof input === 'string' ? input : input?.question;
+    const image = typeof input === 'object' && input ? input.image : undefined;
+    const imageUrl = normalizeImageDataUrl(image);
+    const history = typeof input === 'object' && input ? sanitizeHistoryMessages(input.messages) : [];
+
+    const trimmedQuestion = typeof question === 'string' ? question.trim() : '';
+    let userText = trimmedQuestion;
+    const historyCopy = [...history];
+
+    // If no explicit question, use the latest user message from history as the prompt.
+    if (!userText) {
+        for (let i = historyCopy.length - 1; i >= 0; i--) {
+            if (historyCopy[i].role === 'user') {
+                userText = historyCopy[i].content.trim();
+                historyCopy.splice(i, 1);
+                break;
+            }
+        }
+    }
+
+    if (!userText) {
+        throw new Error('Missing question');
+    }
+
+    // If the explicit question duplicates the last history user message, drop it to avoid duplicates.
+    if (trimmedQuestion && historyCopy.length > 0) {
+        const last = historyCopy[historyCopy.length - 1];
+        if (last.role === 'user' && last.content.trim() === userText) {
+            historyCopy.pop();
+        }
+    }
+
+    const userMessage = imageUrl
+        ? {
+            role: 'user',
+            content: [
+                { type: 'text', text: userText },
+                { type: 'image_url', image_url: { url: imageUrl } },
+            ],
+        }
+        : { role: 'user', content: userText };
+
+    const promptMessages = [{ role: 'system', content: system }, ...historyCopy, userMessage];
+
     // Mock path: yield a quick response for dev.
     if (process.env.MOCK_OPENAI === 'true') {
-        yield `MOCK_RESPONSE:${JSON.stringify([{ role: 'system', content: system }, { role: 'user', content: question }])}`;
+        yield `MOCK_RESPONSE:${JSON.stringify(promptMessages)}`;
         return;
     }
 
     // OpenAI streaming
     const stream = await openai.chat.completions.create({
         model: "gpt-4o-mini",
-        messages: [
-            { role: "system", content: system },
-            { role: "user", content: question },
-        ],
+        messages: promptMessages,
         temperature: 0.2,
         max_tokens: 600,
         stream: true,
@@ -86,13 +178,43 @@ export const handler = async (event) => {
         const start = Date.now();
         if (!event.body)
             return resp(400, "Missing body");
-        const { question, image } = JSON.parse(event.body || "{}");
-        if (!question)
-            return resp(400, "Missing question");
-        const openai = await getClient();
-        if (image) {
-            console.warn("Image payload received but screenshot support is disabled. Ignoring image.");
+        const { question, image, messages } = JSON.parse(event.body || "{}");
+        const imageUrl = normalizeImageDataUrl(image);
+        const history = sanitizeHistoryMessages(messages);
+        const trimmedQuestion = typeof question === 'string' ? question.trim() : '';
+        let userText = trimmedQuestion;
+        const historyCopy = [...history];
+
+        if (!userText) {
+            for (let i = historyCopy.length - 1; i >= 0; i--) {
+                if (historyCopy[i].role === 'user') {
+                    userText = historyCopy[i].content.trim();
+                    historyCopy.splice(i, 1);
+                    break;
+                }
+            }
         }
+
+        if (!userText)
+            return resp(400, "Missing question");
+
+        if (trimmedQuestion && historyCopy.length > 0) {
+            const last = historyCopy[historyCopy.length - 1];
+            if (last.role === 'user' && last.content.trim() === userText) {
+                historyCopy.pop();
+            }
+        }
+
+        const userMessage = imageUrl
+            ? {
+                role: 'user',
+                content: [
+                    { type: 'text', text: userText },
+                    { type: 'image_url', image_url: { url: imageUrl } },
+                ],
+            }
+            : { role: 'user', content: userText };
+        const openai = await getClient();
         const system = [
             "You are a helpful assistant.",
             "Reply in natural Traditional Chinese.",
@@ -102,10 +224,7 @@ export const handler = async (event) => {
         const completionStart = Date.now();
         const completion = await openai.chat.completions.create({
             model: "gpt-4o-mini",
-            messages: [
-                { role: "system", content: system },
-                { role: "user", content: question },
-            ],
+            messages: [{ role: "system", content: system }, ...historyCopy, userMessage],
             temperature: 0.2,
             max_tokens: 600,
         });
