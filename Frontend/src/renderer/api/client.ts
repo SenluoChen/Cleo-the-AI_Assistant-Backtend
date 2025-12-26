@@ -92,31 +92,47 @@ const parseSseLines = async function* (response: Response): AsyncGenerator<Analy
 };
 
 export async function* analyzeStream(payload: AnalyzePayload): AsyncGenerator<string, void, void> {
+  // Prefer streaming via SSE fetch so we can show partial deltas as they arrive.
+  // This will work in the renderer (Electron) and in browsers that can reach the local API.
   const url = resolveApiUrl();
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "text/event-stream"
-    },
-    body: JSON.stringify(payload)
-  });
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream"
+      },
+      body: JSON.stringify(payload)
+    });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`API Error: ${response.status}\n${text}`);
-  }
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`API Error: ${response.status}\n${text}`);
+    }
 
-  for await (const evt of parseSseLines(response)) {
-    if (evt.event === "delta") {
-      if (evt.data.delta) yield evt.data.delta;
+    for await (const evt of parseSseLines(response)) {
+      if (evt.event === "delta") {
+        if (evt.data.delta) yield evt.data.delta;
+      }
+      if (evt.event === "error") {
+        throw new Error(evt.data.error);
+      }
+      if (evt.event === "done") {
+        return;
+      }
     }
-    if (evt.event === "error") {
-      throw new Error(evt.data.error);
-    }
-    if (evt.event === "done") {
+  } catch (err) {
+    // If streaming fetch fails (e.g., backend not reachable from renderer),
+    // fall back to IPC analyze if available which returns the full answer.
+    if (window.api?.analyze) {
+      const res = await window.api.analyze(payload);
+      const answer = typeof (res as any)?.answer === "string" ? (res as any).answer : "";
+      if (answer) yield answer;
       return;
     }
+
+    // Re-throw original error when no fallback available.
+    throw err;
   }
 }

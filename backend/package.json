@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "description": "Local API server that proxies to OpenAI.",
+  "type": "module",
   "scripts": {
     "dev": "node dist/local-api.js",
     "start": "node dist/local-api.js",

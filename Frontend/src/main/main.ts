@@ -1,15 +1,17 @@
 import "dotenv/config";
 import "./polyfills";
-import { app, ipcMain, globalShortcut, BrowserWindow, screen } from "electron";
+import { app, ipcMain, globalShortcut, BrowserWindow, screen, clipboard, nativeImage } from "electron";
 import type { Event as ElectronEvent } from "electron";
 import { createBubbleWindow } from "./windows";
-import { captureFullScreenBase64 } from "./screenshot";
+import { captureFullScreenBase64, captureViaOsClipboard, getCachedCapture, startCapturePrewarm } from "./screenshot";
+import { createHash } from "node:crypto";
 import { Channels } from "../common/ipc";
 import * as path from "node:path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import { request } from "undici";
 import { log, err } from "./logger";
+import { spawn } from "node:child_process";
 
 const ensureDir = (dir: string) => {
   if (!existsSync(dir)) {
@@ -58,6 +60,94 @@ let mainWin: BrowserWindow | null = null;
 let bubbleWin: BrowserWindow | null = null;
 let isPinned = readPinnedState();
 let isQuitting = false;
+
+let ensureLocalApiPromise: Promise<boolean> | null = null;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isConnRefusedError = (e: unknown) => {
+  const code = typeof e === "object" && e !== null && "code" in e ? (e as any).code : undefined;
+  const msg = e instanceof Error ? e.message : String(e);
+  return code === "ECONNREFUSED" || msg.includes("ECONNREFUSED");
+};
+
+const findLocalApiEntry = (): string | null => {
+  // Dev-only convenience: backend lives next to Frontend in this repo.
+  // In packaged builds, we don't ship a Node backend.
+  const candidates: string[] = [];
+  try {
+    candidates.push(path.resolve(process.cwd(), "..", "backend", "dist", "local-api.js"));
+  } catch {
+    // ignore
+  }
+  try {
+    candidates.push(path.resolve(app.getAppPath(), "..", "backend", "dist", "local-api.js"));
+  } catch {
+    // ignore
+  }
+
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+};
+
+const isLocalApiHealthy = async (healthUrl: string): Promise<boolean> => {
+  try {
+    const res = await request(healthUrl, { method: "GET" });
+    // Drain body to avoid leaks.
+    await res.body.text();
+    return res.statusCode >= 200 && res.statusCode < 300;
+  } catch {
+    return false;
+  }
+};
+
+const ensureLocalApiRunning = async (port: string): Promise<boolean> => {
+  if (app.isPackaged) return false;
+  if (process.env.SMART_ASSISTANT_AUTOSTART_LOCAL_API === "false") return false;
+  if (ensureLocalApiPromise) return ensureLocalApiPromise;
+
+  ensureLocalApiPromise = (async () => {
+    const healthUrl = `http://127.0.0.1:${port}/health`;
+    if (await isLocalApiHealthy(healthUrl)) return true;
+
+    const entry = findLocalApiEntry();
+    if (!entry) {
+      err("[AUTO-START] local-api.js not found; cannot auto-start backend");
+      return false;
+    }
+
+    log("[AUTO-START] starting local backend:", entry);
+    try {
+      const child = spawn("node", [entry], {
+        cwd: path.resolve(entry, "..", "..", ".."),
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+        env: process.env
+      });
+      child.unref();
+    } catch (e: unknown) {
+      err("[AUTO-START] failed to spawn backend:", e instanceof Error ? e.message : String(e));
+      return false;
+    }
+
+    const timeoutMs = Number.parseInt(process.env.SMART_ASSISTANT_LOCAL_API_START_TIMEOUT_MS ?? "3500", 10);
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (await isLocalApiHealthy(healthUrl)) return true;
+      await sleep(200);
+    }
+
+    err("[AUTO-START] backend did not become healthy in time:", healthUrl);
+    return false;
+  })().finally(() => {
+    ensureLocalApiPromise = null;
+  });
+
+  return ensureLocalApiPromise;
+};
 
 // In dev, compiled entrypoints live in dist/main and assets in dist/{renderer,preload}.
 // In production, the same relative layout is preserved inside the packaged app.
@@ -110,6 +200,11 @@ const createMainWindow = (): BrowserWindow => {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const clampInt = (value: number, min: number, max: number) => {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(Math.max(Math.trunc(value), min), max);
+};
 
 const positionMainWindowAboveBubble = (win: BrowserWindow) => {
   const bubble = ensureBubbleWindow();
@@ -225,6 +320,109 @@ app.whenReady().then(() => {
 
   log("Application ready");
 
+  // Optional: keep a fresh screenshot cached so the button feels instant.
+  // Enable with SMART_ASSISTANT_CAPTURE_PREWARM=true
+  startCapturePrewarm();
+
+  // Start clipboard watcher to implement clipboard-first architecture.
+  const shouldWatchClipboard = process.platform === "win32" || process.env.SMART_ASSISTANT_CAPTURE_MODE === "os";
+  if (shouldWatchClipboard) {
+    let lastHash: string | null = null;
+    const pollMs = clampInt(Number.parseInt(process.env.SMART_ASSISTANT_CLIP_POLL_MS ?? "", 10) || 300, 50, 2000);
+
+    // Dev-only benchmark helpers: measure how fast the watcher reacts after clipboard changes.
+    const benchEnabled = process.env.SMART_ASSISTANT_CLIP_BENCH === "true";
+    const benchWaiters: Array<(ms: number) => void> = [];
+    let lastBenchWriteAt: number | null = null;
+
+    const notifyBench = (ms: number) => {
+      while (benchWaiters.length) {
+        const resolve = benchWaiters.shift();
+        try {
+          resolve?.(ms);
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    const waitForBenchResult = () => new Promise<number>((resolve) => benchWaiters.push(resolve));
+
+    const runClipboardBench = async () => {
+      const iters = clampInt(Number.parseInt(process.env.SMART_ASSISTANT_CLIP_BENCH_ITERS ?? "", 10) || 30, 5, 500);
+      const intervalMs = clampInt(Number.parseInt(process.env.SMART_ASSISTANT_CLIP_BENCH_INTERVAL_MS ?? "", 10) || 250, 50, 5000);
+
+      // 1x1 PNG (constant). We'll alternate clipboard empty -> image so the hash changes reliably.
+      const onePxPng =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+8q9cAAAAASUVORK5CYII=";
+      const img = nativeImage.createFromDataURL(onePxPng);
+
+      const samples: number[] = [];
+      log(`[CLIP-BENCH] start iters=${iters} pollMs=${pollMs} intervalMs=${intervalMs}`);
+
+      for (let i = 0; i < iters; i++) {
+        clipboard.clear();
+        await sleep(40);
+
+        lastBenchWriteAt = Date.now();
+        clipboard.writeImage(img);
+
+        const dt = await waitForBenchResult();
+        samples.push(dt);
+        await sleep(intervalMs);
+      }
+
+      samples.sort((a, b) => a - b);
+      const avg = Math.round(samples.reduce((a, b) => a + b, 0) / Math.max(1, samples.length));
+      const p50 = samples[Math.floor(samples.length * 0.5)] ?? 0;
+      const p90 = samples[Math.floor(samples.length * 0.9)] ?? 0;
+      const min = samples[0] ?? 0;
+      const max = samples[samples.length - 1] ?? 0;
+      log(`[CLIP-BENCH] done n=${samples.length} avg=${avg}ms p50=${p50}ms p90=${p90}ms min=${min}ms max=${max}ms`);
+
+      if (process.env.SMART_ASSISTANT_CLIP_BENCH_EXIT === "true") {
+        try {
+          app.quit();
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    setInterval(async () => {
+      try {
+        const img = clipboard.readImage();
+        if (img.isEmpty()) {
+          // Allow the same image to be detected again after clipboard is cleared.
+          lastHash = null;
+          return;
+        }
+        const buf = img.toPNG();
+        if (!buf || buf.length === 0) return;
+        const h = createHash("sha1").update(buf).digest("hex");
+        if (h === lastHash) return;
+        lastHash = h;
+        const dataUrl = `data:image/png;base64,${buf.toString("base64")}`;
+
+        if (benchEnabled && lastBenchWriteAt) {
+          const dt = Date.now() - lastBenchWriteAt;
+          lastBenchWriteAt = null;
+          notifyBench(dt);
+        }
+
+        if (mainWin && !mainWin.webContents.isDestroyed()) {
+          mainWin.webContents.send(Channels.SCREENSHOT_UPDATED, dataUrl);
+        }
+      } catch {
+        // ignore
+      }
+    }, pollMs);
+
+    if (benchEnabled) {
+      void runClipboardBench();
+    }
+  }
+
   // Default to enabled in dev; allow opt-out via env.
   // Set SMART_ASSISTANT_ENABLE_SCREEN_CAPTURE=false to disable.
   const captureEnabled = process.env.SMART_ASSISTANT_ENABLE_SCREEN_CAPTURE !== "false";
@@ -257,25 +455,51 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.on(Channels.CLOSE_MAIN, () => {
+    isQuitting = true;
+    app.quit();
+  });
+
   ipcMain.handle("capture-screen", async () => {
     if (!captureEnabled) {
       log("capture-screen skipped (disabled by SMART_ASSISTANT_ENABLE_SCREEN_CAPTURE)");
       return "";
     }
 
-    // Ensure all app windows are marked as excluded from capture.
-    for (const w of BrowserWindow.getAllWindows()) {
-      if (w.isDestroyed()) continue;
-      try {
-        w.setContentProtection(true);
-      } catch {
-        // ignore
-      }
-    }
-
     try {
-      const b64 = await captureFullScreenBase64(undefined);
-      return `data:image/png;base64,${b64}`;
+      const start = Date.now();
+
+      const mode = (process.env.SMART_ASSISTANT_CAPTURE_MODE ?? "auto").toLowerCase();
+
+      // Clipboard-only mode: delegate capture UI to Windows (Win+Shift+S overlay)
+      // and return immediately. Renderer will update via clipboard watcher.
+      if (mode === "clipboard") {
+        if (process.platform === "win32") {
+          void (await import("electron")).shell.openExternal("ms-screenclip:");
+        }
+        if (process.env.SMART_ASSISTANT_CAPTURE_DEBUG_TIMING === "true") {
+          log(`[CAPTURE] clipboard-mode triggered OS screenclip, return immediate ${Date.now() - start} ms`);
+        }
+        return "";
+      }
+
+      // If prewarm is enabled, return a fresh cached image immediately.
+      if (process.env.SMART_ASSISTANT_CAPTURE_PREWARM !== "false") {
+        const cached = getCachedCapture(1500);
+        if (cached) {
+          if (process.env.SMART_ASSISTANT_CAPTURE_DEBUG_TIMING === "true") {
+            log(`[CAPTURE] cache-hit total ${Date.now() - start} ms, bytes=${cached.length}`);
+          }
+          return cached;
+        }
+      }
+
+      // No cached frame yet; do not call desktopCapturer on click.
+      // Return empty and rely on the background prewarm to populate shortly.
+      if (process.env.SMART_ASSISTANT_CAPTURE_DEBUG_TIMING === "true") {
+        log(`[CAPTURE] cache-miss return empty ${Date.now() - start} ms`);
+      }
+      return "";
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       err("capture-screen failed:", message);
@@ -292,11 +516,30 @@ app.whenReady().then(() => {
       log(`[WARN] VITE_ANALYZE_URL not set, falling back to ${defaultUrl}`);
     }
 
-    const res = await request(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload)
-    });
+    const doRequest = async () => {
+      return request(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+    };
+
+    let res;
+    try {
+      res = await doRequest();
+    } catch (e: unknown) {
+      // If backend isn't running locally yet, try to auto-start it once in dev.
+      if (!process.env.VITE_ANALYZE_URL && isConnRefusedError(e)) {
+        const started = await ensureLocalApiRunning(defaultPort);
+        if (started) {
+          res = await doRequest();
+        } else {
+          throw e;
+        }
+      } else {
+        throw e;
+      }
+    }
 
     const text = await res.body.text();
     if (res.statusCode < 200 || res.statusCode >= 300) {

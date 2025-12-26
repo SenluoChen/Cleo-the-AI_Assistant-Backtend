@@ -6,9 +6,11 @@ import { type AnalyzePayload, type AnalyzeResponse } from "../common/schemas";
  */
 const Channels = {
   TOGGLE_MAIN: "TOGGLE_MAIN",
+  CLOSE_MAIN: "CLOSE_MAIN",
   SET_PIN_STATE: "SET_PIN_STATE",
   GET_PIN_STATE: "GET_PIN_STATE",
   PIN_STATE_UPDATED: "PIN_STATE_UPDATED",
+  SCREENSHOT_UPDATED: "SCREENSHOT_UPDATED",
 } as const;
 
 /**
@@ -26,6 +28,13 @@ const api = {
    */
   toggleMain: () => {
     ipcRenderer.send(Channels.TOGGLE_MAIN);
+  },
+
+  /**
+   * 關閉程式/視窗
+   */
+  closeMain: () => {
+    ipcRenderer.send(Channels.CLOSE_MAIN);
   },
 
   /**
@@ -58,6 +67,15 @@ const api = {
     return () => {
       ipcRenderer.removeListener(Channels.PIN_STATE_UPDATED, handler);
     };
+  },
+
+  /**
+   * 監聽剪貼簿圖片更新（當主程式檢測到新圖片時會送出）
+   */
+  onClipboardImage: (listener: (dataUrl: string) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, dataUrl: string) => listener(String(dataUrl));
+    ipcRenderer.on(Channels.SCREENSHOT_UPDATED, handler);
+    return () => ipcRenderer.removeListener(Channels.SCREENSHOT_UPDATED, handler);
   },
 };
 

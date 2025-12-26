@@ -1,11 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
+import { fileURLToPath } from "node:url";
 
-// Simple .env loader for the built local-api (so backend/.env is respected)
-try {
-  const envPath = path.join(process.cwd(), ".env");
-  if (fs.existsSync(envPath)) {
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+function loadEnvFile(envPath) {
+  try {
+    if (!fs.existsSync(envPath)) return false;
     const raw = fs.readFileSync(envPath, "utf8");
     raw.split(/\r?\n/).forEach((line) => {
       const trimmed = line.trim();
@@ -19,10 +22,28 @@ try {
       }
       if (process.env[key] === undefined) process.env[key] = val;
     });
+    return true;
+  } catch {
+    return false;
   }
-} catch (e) {
-  // ignore
 }
+
+// Simple .env loader for the built local-api.
+// Support both:
+// - running from backend/ (CWD has .env)
+// - running from repo root (backend/.env)
+// - running from anywhere (resolve relative to this dist file)
+(() => {
+  const candidates = [
+    path.join(process.cwd(), ".env"),
+    path.join(process.cwd(), "backend", ".env"),
+    path.join(__dirname, "..", ".env"),
+  ];
+
+  for (const p of candidates) {
+    if (loadEnvFile(p)) break;
+  }
+})();
 
 // Suppress AWS SDK v2 maintenance warning (it writes to stderr and can break PowerShell job runners)
 if (process.env.AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE === undefined) {
@@ -42,6 +63,13 @@ async function loadHandlers() {
 await loadHandlers();
 
 const PORT = Number.parseInt(process.env.LOCAL_API_PORT ?? process.env.PORT ?? "8787", 10);
+
+const MAX_BODY_BYTES = (() => {
+  const raw = Number.parseInt(process.env.LOCAL_API_MAX_BODY_BYTES ?? "", 10);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  // Screenshots can be several MB once base64-encoded; keep a safer default.
+  return 25_000_000;
+})();
 
 if (process.env.MOCK_OPENAI === undefined) {
   process.env.MOCK_OPENAI = process.env.OPENAI_API_KEY ? "false" : "true";
@@ -109,8 +137,11 @@ const server = http.createServer(async (req, res) => {
     req.setEncoding("utf8");
     req.on("data", (chunk) => {
       rawBody += chunk;
-      if (rawBody.length > 5_000_000) {
-        req.destroy(new Error("Request body too large"));
+      if (rawBody.length > MAX_BODY_BYTES) {
+        if (!res.writableEnded) {
+          sendJson(res, 413, { error: `Request body too large (max ${MAX_BODY_BYTES} bytes)` });
+        }
+        req.destroy();
       }
     });
 

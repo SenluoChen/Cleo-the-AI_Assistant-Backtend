@@ -4,12 +4,7 @@
 		{
 			"label": "Restart backend (8787)",
 			"type": "shell",
-			"command": "powershell",
-			"args": [
-				"-NoProfile",
-				"-Command",
-				"$pid=(Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty OwningProcess); if ($pid) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 300 }; Set-Location 'C:\\Users\\Louis\\Visual Studio\\smart-assistant Backend'; node backend\\dist\\local-api.js"
-			],
+			"command": "$listenPid=(Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty OwningProcess); if ($listenPid) { Stop-Process -Id $listenPid -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 300 }; Set-Location 'C:\\Users\\Louis\\Visual Studio\\smart-assistant Backend'; node backend\\dist\\local-api.js",
 			"isBackground": true
 		}
 	]

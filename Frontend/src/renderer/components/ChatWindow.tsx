@@ -5,6 +5,43 @@ import { ThinkingBubble } from "./ThinkingBubble";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+async function toJpegDataUrl(inputDataUrl: string): Promise<string> {
+  const dataUrl = String(inputDataUrl || "").trim();
+  if (!dataUrl.startsWith("data:image/")) return dataUrl;
+  if (dataUrl.startsWith("data:image/jpeg")) return dataUrl;
+
+  return await new Promise<string>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const width = img.naturalWidth || img.width;
+      const height = img.naturalHeight || img.height;
+      if (!width || !height) {
+        reject(new Error("Invalid image"));
+        return;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("Canvas not supported"));
+        return;
+      }
+
+      // Flatten transparency onto white for consistent results.
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+
+      resolve(canvas.toDataURL("image/jpeg", 0.92));
+    };
+    img.onerror = () => reject(new Error("Invalid image"));
+    img.src = dataUrl;
+  });
+}
+
 export default function ChatWindow() {
   const {
     messages,
@@ -21,6 +58,7 @@ export default function ChatWindow() {
   const [draft, setDraft] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [pinning, setPinning] = useState(false);
+  const [capturingScreenshot, setCapturingScreenshot] = useState(false);
 
   // --- Paste handler（支援貼圖片） ---
   const handlePaste = useCallback(
@@ -60,9 +98,15 @@ export default function ChatWindow() {
     const unsubscribe = window.api?.onPinState?.((next) => {
       if (active) setPinned(next);
     });
+    // Clipboard-first: listen to main process clipboard image events.
+    const unsubClip = window.api?.onClipboardImage?.((dataUrl: string) => {
+      if (!active) return;
+      setScreenshot(dataUrl);
+    });
     return () => {
       active = false;
       unsubscribe?.();
+      unsubClip?.();
     };
   }, [setPinned]);
 
@@ -92,10 +136,11 @@ export default function ChatWindow() {
         .filter((msg) => (msg.role === "user" || msg.role === "assistant") && msg.content.trim().length > 0)
         .map((msg) => ({ role: msg.role, content: msg.content }));
 
+      const image = screenshot ? await toJpegDataUrl(screenshot) : undefined;
       const payload = {
         question: trimmed,
         messages: [...history, { role: "user" as const, content: trimmed }],
-        image: screenshot ?? undefined
+        image
       };
 
       setPushing(true);
@@ -146,8 +191,20 @@ export default function ChatWindow() {
             className={`chat-pin-btn ${pinned ? "is-pinned" : ""}`}
             onClick={handlePinToggle}
             disabled={pinning || !window.api?.setPinned}
+            aria-label={pinned ? "取消固定視窗" : "固定視窗"}
           >
             📌
+          </button>
+
+          <button
+            type="button"
+            className="chat-close-btn"
+            onClick={() => window.api?.closeMain?.()}
+            disabled={!window.api?.closeMain}
+            aria-label="關閉視窗"
+            title="關閉"
+          >
+            ×
           </button>
         </div>
 
@@ -162,14 +219,36 @@ export default function ChatWindow() {
 
       {/* Messages */}
       <div className="chat-messages">
-        {messages.map((msg, i) => (
-          <div
-            key={`${msg.role}-${i}`}
-            className={`bubble bubble--${msg.role}`}
-          >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-          </div>
-        ))}
+        {messages.map((msg, i) => {
+          const isLast = i === messages.length - 1;
+          const showCursor = Boolean(pushing && isLast && msg.role === "assistant");
+
+          return (
+            <div
+              key={`${msg.role}-${i}`}
+              className={`bubble bubble--${msg.role}`}
+            >
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  a: ({ children, ...props }) => (
+                    <a {...props} target="_blank" rel="noreferrer">
+                      {children}
+                    </a>
+                  ),
+                  code: ({ className, children, ...props }) => (
+                    <code className={className} {...props}>
+                      {children}
+                    </code>
+                  )
+                }}
+              >
+                {msg.content}
+              </ReactMarkdown>
+              {showCursor && <span className="stream-cursor" aria-hidden="true" />}
+            </div>
+          );
+        })}
 
         {/* AI thinking animation */}
         {pushing && <ThinkingBubble />}
@@ -177,7 +256,14 @@ export default function ChatWindow() {
 
       {/* Composer */}
       <div className="chat-composer">
-        <div className={`composer-screenshot-preview ${screenshot ? "is-visible" : ""}`}>
+        <div className={`composer-screenshot-preview ${screenshot || capturingScreenshot ? "is-visible" : ""}`}>
+          {capturingScreenshot && !screenshot && (
+            <div className="composer-screenshot-loading" role="status" aria-live="polite" aria-label="Capturing screenshot">
+              <span className="apple-spinner" aria-hidden="true" />
+              <span className="composer-screenshot-loading__text">截圖中…</span>
+            </div>
+          )}
+
           {screenshot && <img src={screenshot} alt="screenshot preview" />}
         </div>
 
@@ -207,27 +293,30 @@ export default function ChatWindow() {
               className="composer-screenshot"
               onClick={async () => {
                 try {
+                  if (capturingScreenshot) return;
+                  setCapturingScreenshot(true);
                   const data = await window.api?.captureScreen?.();
-                  if (data) {
-                    const text = String(data);
+                  const text = String(data ?? "").trim();
+                  if (text) {
                     const dataUrl = text.startsWith("data:") ? text : `data:image/png;base64,${text}`;
                     setScreenshot(dataUrl);
                   }
                 } catch (err) {
                   console.error("Screenshot failed", err);
+                } finally {
+                  setCapturingScreenshot(false);
                 }
               }}
-              title="截圖"
-              aria-label="截圖"
-              disabled={pushing || !window.api?.captureScreen}
+              title="Screenshot"
+              aria-label="Screenshot"
+              disabled={pushing || capturingScreenshot || !window.api?.captureScreen}
             >
               <span className="btn-icon" aria-hidden>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M4 7H6L7 5H17L18 7H20C21.1046 7 22 7.89543 22 9V18C22 19.1046 21.1046 20 20 20H4C2.89543 20 2 19.1046 2 18V9C2 7.89543 2.89543 7 4 7Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <circle cx="12" cy="13" r="3" stroke="currentColor" strokeWidth="1.2"/>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M4 7H6L7 5H17L18 7H20C21.1046 7 22 7.89543 22 9V18C22 19.1046 21.1046 20 20 20H4C2.89543 20 2 19.1046 2 18V9C2 7.89543 2.89543 7 4 7Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  <circle cx="12" cy="13" r="3" stroke="currentColor" strokeWidth="1.8"/>
                 </svg>
               </span>
-              <span className="btn-label">截圖</span>
             </button>
           </div>
         </form>
