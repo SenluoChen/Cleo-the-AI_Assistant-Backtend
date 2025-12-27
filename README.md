@@ -1,41 +1,4 @@
-# Cleo the Smart Assistant Backend
-
-Electron + React desktop companion for the Smart Assistant experience. The renderer delivers a modern chat UI, while the Electron main process manages native capabilities such as window pinning and screen capture.
-
-## Project Layout
-
-```
-smart-assistant Backend/
-├─ backend/                  # Local API + backend services
-└─ web/smart-assistant/Frontend/ # Electron + Vite application (ONLY frontend)
-```
-
-## Prerequisites
-
-- Node.js 18+ (Electron 28 requires a modern runtime)
-- npm 9+
-- Playwright browsers (only if you plan to run the E2E suite): `npx playwright install`
-
-## Getting Started
-
-```powershell
-cd web/smart-assistant/Frontend
-npm install
-```
-
-### Development workflow
-
-```powershell
-npm run dev
-```
-
-The dev task:
-- Compiles the Electron main + preload processes in watch mode.
-- Boots Vite for the renderer with hot module replacement.
-- Launches Electron once the renderer is ready.
-
-### Production build
-# Smart Assistant
+﻿# Cleo (Frontend + Backend)
 
 Desktop smart assistant (Electron + React) with a local API backend that proxies to OpenAI.
 
@@ -96,3 +59,15 @@ Backend: `backend/.env`
 Frontend: `Frontend/.env` (optional)
 
 - `VITE_ANALYZE_URL` (optional; defaults to `http://127.0.0.1:8787/analyze`)
+
+## Moving Frontend/Backend to another folder
+
+Both projects are standalone:
+
+- To move the desktop app, copy the entire `Frontend/` folder elsewhere.
+- To move the API server, copy the entire `backend/` folder elsewhere.
+
+Then install and run from inside each folder.
+
+- Frontend instructions: see `Frontend/README.md`
+- Backend instructions: see `backend/README.md`

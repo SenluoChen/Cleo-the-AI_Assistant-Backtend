@@ -8,9 +8,9 @@ const controlsStyle: AppRegionStyle = { WebkitAppRegion: "no-drag" };
 export default function Titlebar() {
   return (
     <div className="titlebar" style={titlebarStyle}>
-      <div className="title">Smart Assistant</div>
+      <div className="title">Cleo</div>
       <div className="window-controls" style={controlsStyle}>
-        <button className="dot red" title="Smart Assistant" />
+        <button className="dot red" title="Cleo" />
       </div>
     </div>
   );

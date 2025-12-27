@@ -1,9 +1,9 @@
 import { FormEvent, useCallback, useState, ClipboardEvent, useEffect } from "react";
 import { analyzeStream } from "../api/client";
 import { useUI } from "../store/ui";
-import { ThinkingBubble } from "./ThinkingBubble";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import ChatMessages from "./ChatMessages";
+import ChatSidebar from "./ChatSidebar";
+import { RobotHeadIcon } from "./RobotHeadIcon";
 
 async function toJpegDataUrl(inputDataUrl: string): Promise<string> {
   const dataUrl = String(inputDataUrl || "").trim();
@@ -43,20 +43,18 @@ async function toJpegDataUrl(inputDataUrl: string): Promise<string> {
 }
 
 export default function ChatWindow() {
-  const {
-    messages,
-    screenshot,
-    addMessage,
-    setScreenshot,
-    pushing,
-    setPushing,
-    pinned,
-    setPinned,
-    appendToLastAssistant,
-    setLastAssistantContent
-  } = useUI();
+  const screenshot = useUI((s) => s.screenshot);
+  const addMessage = useUI((s) => s.addMessage);
+  const setScreenshot = useUI((s) => s.setScreenshot);
+  const pushing = useUI((s) => s.pushing);
+  const setPushing = useUI((s) => s.setPushing);
+  const pinned = useUI((s) => s.pinned);
+  const setPinned = useUI((s) => s.setPinned);
+  const appendToLastAssistant = useUI((s) => s.appendToLastAssistant);
+  const setLastAssistantContent = useUI((s) => s.setLastAssistantContent);
+
   const [draft, setDraft] = useState("");
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pinning, setPinning] = useState(false);
   const [capturingScreenshot, setCapturingScreenshot] = useState(false);
 
@@ -124,7 +122,7 @@ export default function ChatWindow() {
     }
   }, [pinned, setPinned, pinning]);
 
-  const toggleMenu = useCallback(() => setMenuOpen((s) => !s), []);
+  const toggleSidebar = useCallback(() => setSidebarOpen((s) => !s), []);
 
   // --- Sending message ---
   const sendMessage = useCallback(
@@ -132,7 +130,7 @@ export default function ChatWindow() {
       const trimmed = text.trim();
       if (!trimmed) return;
 
-      const history = [...messages]
+      const history = [...useUI.getState().messages]
         .filter((msg) => (msg.role === "user" || msg.role === "assistant") && msg.content.trim().length > 0)
         .map((msg) => ({ role: msg.role, content: msg.content }));
 
@@ -154,8 +152,33 @@ export default function ChatWindow() {
       addMessage({ role: "assistant", content: "" });
 
       try {
+        let buffer = "";
+        let rafId: number | null = null;
+
+        const scheduleFlush = () => {
+          if (rafId !== null) return;
+          rafId = window.requestAnimationFrame(() => {
+            rafId = null;
+            if (!buffer) return;
+            const chunk = buffer;
+            buffer = "";
+            appendToLastAssistant(chunk);
+          });
+        };
+
         for await (const delta of analyzeStream(payload)) {
-          appendToLastAssistant(delta);
+          buffer += delta;
+          scheduleFlush();
+        }
+
+        if (rafId !== null) {
+          window.cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+
+        if (buffer) {
+          appendToLastAssistant(buffer);
+          buffer = "";
         }
       } catch (error: unknown) {
         setLastAssistantContent(`⚠️ Error: ${error instanceof Error ? error.message : String(error)}`);
@@ -163,7 +186,7 @@ export default function ChatWindow() {
         setPushing(false);
       }
     },
-    [messages, screenshot, addMessage, setScreenshot, setPushing, appendToLastAssistant, setLastAssistantContent]
+    [screenshot, addMessage, setScreenshot, setPushing, appendToLastAssistant, setLastAssistantContent]
   );
 
   const handleSubmit = useCallback(
@@ -180,11 +203,18 @@ export default function ChatWindow() {
       {/* Header */}
       <div className="chat-header">
         <div className="chat-header-left">
-          <button type="button" className="chat-menu-btn" onClick={toggleMenu} aria-expanded={menuOpen}>
-            ☰
+          <button type="button" className="chat-menu-btn" onClick={toggleSidebar} aria-expanded={sidebarOpen}>
+            <svg className="chat-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+              <path d="M4 7H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              <path d="M4 12H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              <path d="M4 17H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
           </button>
         </div>
-        <div className="chat-title">Smart Assistant</div>
+        <div className="chat-title">
+          <RobotHeadIcon size={22} className="chat-title__icon" />
+          <span className="chat-title__text">Cleo</span>
+        </div>
         <div className="chat-header-right">
           <button
             type="button"
@@ -193,7 +223,21 @@ export default function ChatWindow() {
             disabled={pinning || !window.api?.setPinned}
             aria-label={pinned ? "取消固定視窗" : "固定視窗"}
           >
-            📌
+            <svg className="chat-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+              <circle cx="12" cy="7" r="5" stroke="currentColor" strokeWidth="2" />
+              <path
+                d="M10.2 6.2c.9-1.3 2.4-2.1 4.2-2.1"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+              <path
+                d="M10.5 12v8l1.5 2 1.5-2v-8"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinejoin="round"
+              />
+            </svg>
           </button>
 
           <button
@@ -204,55 +248,18 @@ export default function ChatWindow() {
             aria-label="關閉視窗"
             title="關閉"
           >
-            ×
+            <svg className="chat-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+              <path d="M7 7l10 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              <path d="M17 7L7 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
           </button>
         </div>
 
-        {menuOpen && (
-          <div className="chat-menu-popover">
-            <button className="menu-item">新對話</button>
-            <button className="menu-item">探索案例</button>
-            <button className="menu-item">螢幕截圖</button>
-          </div>
-        )}
+        {sidebarOpen && <ChatSidebar onClose={() => setSidebarOpen(false)} />}
       </div>
 
       {/* Messages */}
-      <div className="chat-messages">
-        {messages.map((msg, i) => {
-          const isLast = i === messages.length - 1;
-          const showCursor = Boolean(pushing && isLast && msg.role === "assistant");
-
-          return (
-            <div
-              key={`${msg.role}-${i}`}
-              className={`bubble bubble--${msg.role}`}
-            >
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  a: ({ children, ...props }) => (
-                    <a {...props} target="_blank" rel="noreferrer">
-                      {children}
-                    </a>
-                  ),
-                  code: ({ className, children, ...props }) => (
-                    <code className={className} {...props}>
-                      {children}
-                    </code>
-                  )
-                }}
-              >
-                {msg.content}
-              </ReactMarkdown>
-              {showCursor && <span className="stream-cursor" aria-hidden="true" />}
-            </div>
-          );
-        })}
-
-        {/* AI thinking animation */}
-        {pushing && <ThinkingBubble />}
-      </div>
+      <ChatMessages />
 
       {/* Composer */}
       <div className="chat-composer">

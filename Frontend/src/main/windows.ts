@@ -27,13 +27,13 @@ export function createMainWindow(): BrowserWindow {
 }
 
 export function createBubbleWindow(): BrowserWindow {
-  const { workAreaSize } = screen.getPrimaryDisplay();
-  const size = 64;
+  const { workArea } = screen.getPrimaryDisplay();
+  const size = 84;
   const bubble = new BrowserWindow({
     width: size,
     height: size,
-    x: workAreaSize.width - size - 16,
-    y: workAreaSize.height - size - 16,
+    x: workArea.x + workArea.width - size - 16,
+    y: workArea.y + workArea.height - size - 16,
     frame: false,
     transparent: true,
     resizable: false,
@@ -51,13 +51,30 @@ export function createBubbleWindow(): BrowserWindow {
     }
   });
 
+  // Some Windows configurations require setting this after creation to avoid a solid fallback background.
+  try {
+    bubble.setBackgroundColor("#00000000");
+  } catch {
+    // ignore
+  }
+
   // Exclude bubble from screenshots/screen capture where supported.
   try {
     bubble.setContentProtection(true);
   } catch {
     // ignore
   }
-  bubble.loadFile(path.join(__dirname, "../renderer/bubble.html"));
+
+  const devUrl = process.env.VITE_DEV_SERVER_URL;
+  if (devUrl) {
+    const url = new URL("bubble.html", devUrl.endsWith("/") ? devUrl : `${devUrl}/`).toString();
+    bubble.loadURL(url).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[BUBBLE] Failed to load dev bubble URL", message);
+    });
+  } else {
+    bubble.loadFile(path.join(__dirname, "../renderer/bubble.html"));
+  }
   bubble.webContents.once("did-finish-load", () => {
     const script = `(() => {
       const api = window.bubbleAPI;

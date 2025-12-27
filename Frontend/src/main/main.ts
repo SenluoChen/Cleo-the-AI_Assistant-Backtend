@@ -179,7 +179,16 @@ const createMainWindow = (): BrowserWindow => {
     // ignore
   }
 
-  win.loadFile(resolveDistPath("renderer", "index.html"));
+  // In dev, allow running against a Vite dev server for HMR.
+  const devUrl = process.env.VITE_DEV_SERVER_URL;
+  if (devUrl) {
+    win.loadURL(devUrl).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      err("Failed to load dev server URL", message);
+    });
+  } else {
+    win.loadFile(resolveDistPath("renderer", "index.html"));
+  }
   win.webContents.once("did-finish-load", () => {
     win.webContents
       .executeJavaScript("Boolean(window.api)")
@@ -319,6 +328,12 @@ app.whenReady().then(() => {
   }
 
   log("Application ready");
+
+  // Dev UX: show the main window immediately when using a Vite dev server.
+  // In production the UI is typically opened via the bubble.
+  if (process.env.VITE_DEV_SERVER_URL) {
+    showMainWindow(true);
+  }
 
   // Optional: keep a fresh screenshot cached so the button feels instant.
   // Enable with SMART_ASSISTANT_CAPTURE_PREWARM=true
