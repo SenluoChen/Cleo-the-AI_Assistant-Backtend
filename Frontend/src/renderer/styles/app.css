@@ -872,3 +872,23 @@ body {
     transform: scale(1);
   }
 }
+
+/* Streaming (typing) visual style */
+.bubble.streaming {
+  color: #374151;
+}
+.bubble.streaming .streaming-caret {
+  display: inline-block;
+  width: 1px;
+  height: 1em;
+  margin-left: 6px;
+  background: currentColor;
+  vertical-align: text-bottom;
+  animation: blink-caret 1s steps(2, start) infinite;
+}
+
+@keyframes blink-caret {
+  0% { opacity: 1 }
+  50% { opacity: 0 }
+  100% { opacity: 1 }
+}

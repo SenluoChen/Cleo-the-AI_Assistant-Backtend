@@ -1,6 +1,28 @@
-import "dotenv/config";
+// Load `.env` only in development when available. In packaged apps `dotenv` may
+// not be present so avoid throwing at startup.
+try {
+  if (process.env.NODE_ENV !== "production") {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // @ts-ignore
+    require("dotenv/config");
+  }
+} catch {
+  // ignore: missing dotenv in production builds
+}
 import "./polyfills";
 import { app, ipcMain, globalShortcut, BrowserWindow, screen, clipboard, nativeImage } from "electron";
+
+// Disable GPU/hardware acceleration in development to avoid Chromium
+// GPU/cache issues that can cause severe lag or blank/white windows.
+try {
+  if (!app.isPackaged) {
+    app.disableHardwareAcceleration();
+    app.commandLine.appendSwitch("disable-gpu");
+    app.commandLine.appendSwitch("disable-gpu-compositing");
+  }
+} catch {
+  // ignore if unavailable
+}
 import type { Event as ElectronEvent } from "electron";
 import { createBubbleWindow } from "./windows";
 import { captureFullScreenBase64, captureViaOsClipboard, getCachedCapture, startCapturePrewarm } from "./screenshot";
@@ -12,6 +34,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { request } from "undici";
 import { log, err } from "./logger";
 import { spawn } from "node:child_process";
+import { startLocalApiServer, type LocalApiServerHandle } from "./local-api";
 
 const ensureDir = (dir: string) => {
   if (!existsSync(dir)) {
@@ -19,7 +42,22 @@ const ensureDir = (dir: string) => {
   }
 };
 
-const userDataPath = path.join(app.getPath("appData"), "SmartAssistantDesktop");
+const getDevProfileSuffix = () => {
+  if (app.isPackaged) return "";
+  const devUrl = process.env.VITE_DEV_SERVER_URL;
+  if (!devUrl) return "-dev";
+  try {
+    const url = new URL(devUrl);
+    const port = url.port ? `-${url.port}` : "";
+    return `-dev${port}`;
+  } catch {
+    return "-dev";
+  }
+};
+
+const baseUserDataRoot =
+  process.platform === "win32" ? process.env.LOCALAPPDATA || app.getPath("appData") : app.getPath("appData");
+const userDataPath = path.join(baseUserDataRoot, `SmartAssistantDesktop${getDevProfileSuffix()}`);
 ensureDir(userDataPath);
 app.setPath("userData", userDataPath);
 
@@ -56,12 +94,24 @@ ensureDir(tempPath);
 app.setPath("cache", cachePath);
 app.setPath("temp", tempPath);
 
+// In dev, also force Chromium to use our dedicated writable directories.
+try {
+  if (!app.isPackaged) {
+    app.commandLine.appendSwitch("user-data-dir", userDataPath);
+    app.commandLine.appendSwitch("disk-cache-dir", cachePath);
+    app.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
+  }
+} catch {
+  // ignore
+}
+
 let mainWin: BrowserWindow | null = null;
 let bubbleWin: BrowserWindow | null = null;
 let isPinned = readPinnedState();
 let isQuitting = false;
 
 let ensureLocalApiPromise: Promise<boolean> | null = null;
+let localApiHandle: LocalApiServerHandle | null = null;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -73,7 +123,7 @@ const isConnRefusedError = (e: unknown) => {
 
 const findLocalApiEntry = (): string | null => {
   // Dev-only convenience: backend lives next to Frontend in this repo.
-  // In packaged builds, we don't ship a Node backend.
+  // In packaged builds, we embed the backend in-process (see local-api.ts).
   const candidates: string[] = [];
   try {
     candidates.push(path.resolve(process.cwd(), "..", "backend", "dist", "local-api.js"));
@@ -104,13 +154,32 @@ const isLocalApiHealthy = async (healthUrl: string): Promise<boolean> => {
 };
 
 const ensureLocalApiRunning = async (port: string): Promise<boolean> => {
-  if (app.isPackaged) return false;
   if (process.env.SMART_ASSISTANT_AUTOSTART_LOCAL_API === "false") return false;
   if (ensureLocalApiPromise) return ensureLocalApiPromise;
 
   ensureLocalApiPromise = (async () => {
     const healthUrl = `http://127.0.0.1:${port}/health`;
     if (await isLocalApiHealthy(healthUrl)) return true;
+
+    if (app.isPackaged) {
+      try {
+        // Run backend in-process in packaged builds.
+        localApiHandle = await startLocalApiServer({ port: Number.parseInt(port, 10), host: "127.0.0.1" });
+      } catch (e: unknown) {
+        err("[AUTO-START] failed to start embedded local API:", e instanceof Error ? e.message : String(e));
+        return false;
+      }
+
+      const timeoutMs = Number.parseInt(process.env.SMART_ASSISTANT_LOCAL_API_START_TIMEOUT_MS ?? "3500", 10);
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        if (await isLocalApiHealthy(healthUrl)) return true;
+        await sleep(150);
+      }
+
+      err("[AUTO-START] embedded local API did not become healthy in time:", healthUrl);
+      return false;
+    }
 
     const entry = findLocalApiEntry();
     if (!entry) {
@@ -148,6 +217,17 @@ const ensureLocalApiRunning = async (port: string): Promise<boolean> => {
 
   return ensureLocalApiPromise;
 };
+
+app.on("before-quit", async () => {
+  try {
+    if (localApiHandle) {
+      await localApiHandle.close();
+      localApiHandle = null;
+    }
+  } catch {
+    // ignore
+  }
+});
 
 // In dev, compiled entrypoints live in dist/main and assets in dist/{renderer,preload}.
 // In production, the same relative layout is preserved inside the packaged app.
@@ -329,6 +409,15 @@ app.whenReady().then(() => {
 
   log("Application ready");
 
+  // Ensure the local API is running so the renderer can reach http://127.0.0.1:8787
+  // (used by renderer fetch/SSE when VITE_ANALYZE_URL is not set).
+  const defaultPort = process.env.LOCAL_API_PORT ?? "8787";
+  if (!process.env.VITE_ANALYZE_URL && process.env.SMART_ASSISTANT_AUTOSTART_LOCAL_API !== "false") {
+    ensureLocalApiRunning(defaultPort).catch(() => {
+      // errors are already logged inside ensureLocalApiRunning
+    });
+  }
+
   // Dev UX: show the main window immediately when using a Vite dev server.
   // In production the UI is typically opened via the bubble.
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -336,14 +425,18 @@ app.whenReady().then(() => {
   }
 
   // Optional: keep a fresh screenshot cached so the button feels instant.
-  // Enable with SMART_ASSISTANT_CAPTURE_PREWARM=true
+  // Enable with SMART_ASSISTANT_CAPTURE_PREWARM=true (default: off)
   startCapturePrewarm();
 
-  // Start clipboard watcher to implement clipboard-first architecture.
-  const shouldWatchClipboard = process.platform === "win32" || process.env.SMART_ASSISTANT_CAPTURE_MODE === "os";
+  // Start clipboard watcher (clipboard-first architecture).
+  // This can be expensive on Windows (large image buffers + hashing), so keep it opt-in.
+  const captureMode = String(process.env.SMART_ASSISTANT_CAPTURE_MODE ?? "").toLowerCase();
+  const shouldWatchClipboard =
+    process.env.SMART_ASSISTANT_CLIP_WATCH === "true" || captureMode === "os" || captureMode === "clipboard";
   if (shouldWatchClipboard) {
     let lastHash: string | null = null;
-    const pollMs = clampInt(Number.parseInt(process.env.SMART_ASSISTANT_CLIP_POLL_MS ?? "", 10) || 300, 50, 2000);
+    const basePollMs = clampInt(Number.parseInt(process.env.SMART_ASSISTANT_CLIP_POLL_MS ?? "", 10) || 300, 50, 2000);
+    const maxPollMs = clampInt(Number.parseInt(process.env.SMART_ASSISTANT_CLIP_POLL_MAX_MS ?? "", 10) || 2000, 200, 10_000);
 
     // Dev-only benchmark helpers: measure how fast the watcher reacts after clipboard changes.
     const benchEnabled = process.env.SMART_ASSISTANT_CLIP_BENCH === "true";
@@ -373,7 +466,7 @@ app.whenReady().then(() => {
       const img = nativeImage.createFromDataURL(onePxPng);
 
       const samples: number[] = [];
-      log(`[CLIP-BENCH] start iters=${iters} pollMs=${pollMs} intervalMs=${intervalMs}`);
+      log(`[CLIP-BENCH] start iters=${iters} pollMs=${basePollMs} intervalMs=${intervalMs}`);
 
       for (let i = 0; i < iters; i++) {
         clipboard.clear();
@@ -404,19 +497,91 @@ app.whenReady().then(() => {
       }
     };
 
-    setInterval(async () => {
+    let currentPollMs = basePollMs;
+
+    const hasImageOnClipboard = (): boolean => {
+      // Fast path: avoid decoding/encoding images when clipboard doesn't even have an image.
+      // Note: On Windows the format names are often not MIME types (e.g. "PNG", "DeviceIndependentBitmap").
       try {
-        const img = clipboard.readImage();
-        if (img.isEmpty()) {
+        const formats = clipboard.availableFormats();
+        return formats.some((raw) => {
+          const f = String(raw).toLowerCase();
+          if (f.startsWith("image/")) return true;
+          if (f.includes("png") || f.includes("jpeg") || f.includes("jpg") || f.includes("bmp") || f.includes("gif")) return true;
+          if (f.includes("dib") || f.includes("deviceindependentbitmap") || f.includes("cf_dib")) return true;
+          return false;
+        });
+      } catch {
+        // If formats aren't available for some reason, fall back to readImage.
+        return true;
+      }
+    };
+
+    const pickPngishFormat = (): string | null => {
+      try {
+        const formats = clipboard.availableFormats();
+        const exact = formats.find((f) => String(f).toLowerCase() === "image/png") ?? formats.find((f) => String(f).toLowerCase() === "png");
+        if (exact) return String(exact);
+        const loose = formats.find((f) => String(f).toLowerCase().includes("png"));
+        return loose ? String(loose) : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const scheduleNext = () => {
+      setTimeout(() => {
+        void pollOnce();
+      }, currentPollMs);
+    };
+
+    const pollOnce = async () => {
+      try {
+        if (!hasImageOnClipboard()) {
           // Allow the same image to be detected again after clipboard is cleared.
           lastHash = null;
+          currentPollMs = basePollMs;
+          scheduleNext();
           return;
         }
-        const buf = img.toPNG();
-        if (!buf || buf.length === 0) return;
+
+        // Prefer reading raw image buffer when available; avoids re-encoding nativeImage -> PNG every poll.
+        let buf: Buffer | null = null;
+        try {
+          const fmt = pickPngishFormat();
+          if (fmt) {
+            buf = clipboard.readBuffer(fmt);
+          }
+        } catch {
+          // ignore
+        }
+
+        if (!buf || buf.length === 0) {
+          const img = clipboard.readImage();
+          if (img.isEmpty()) {
+            lastHash = null;
+            currentPollMs = basePollMs;
+            scheduleNext();
+            return;
+          }
+          buf = img.toPNG();
+        }
+
+        if (!buf || buf.length === 0) {
+          scheduleNext();
+          return;
+        }
+
         const h = createHash("sha1").update(buf).digest("hex");
-        if (h === lastHash) return;
+        if (h === lastHash) {
+          // Adaptive backoff when clipboard stays the same (common case).
+          currentPollMs = Math.min(maxPollMs, Math.max(basePollMs, Math.floor(currentPollMs * 1.6)));
+          scheduleNext();
+          return;
+        }
+
         lastHash = h;
+        currentPollMs = basePollMs;
         const dataUrl = `data:image/png;base64,${buf.toString("base64")}`;
 
         if (benchEnabled && lastBenchWriteAt) {
@@ -430,8 +595,13 @@ app.whenReady().then(() => {
         }
       } catch {
         // ignore
+      } finally {
+        scheduleNext();
       }
-    }, pollMs);
+    };
+
+    // Kick off polling loop.
+    void pollOnce();
 
     if (benchEnabled) {
       void runClipboardBench();
@@ -486,20 +656,8 @@ app.whenReady().then(() => {
 
       const mode = (process.env.SMART_ASSISTANT_CAPTURE_MODE ?? "auto").toLowerCase();
 
-      // Clipboard-only mode: delegate capture UI to Windows (Win+Shift+S overlay)
-      // and return immediately. Renderer will update via clipboard watcher.
-      if (mode === "clipboard") {
-        if (process.platform === "win32") {
-          void (await import("electron")).shell.openExternal("ms-screenclip:");
-        }
-        if (process.env.SMART_ASSISTANT_CAPTURE_DEBUG_TIMING === "true") {
-          log(`[CAPTURE] clipboard-mode triggered OS screenclip, return immediate ${Date.now() - start} ms`);
-        }
-        return "";
-      }
-
-      // If prewarm is enabled, return a fresh cached image immediately.
-      if (process.env.SMART_ASSISTANT_CAPTURE_PREWARM !== "false") {
+      // If prewarm is enabled (opt-in), return a fresh cached image immediately.
+      if (process.env.SMART_ASSISTANT_CAPTURE_PREWARM === "true") {
         const cached = getCachedCapture(1500);
         if (cached) {
           if (process.env.SMART_ASSISTANT_CAPTURE_DEBUG_TIMING === "true") {
@@ -509,12 +667,20 @@ app.whenReady().then(() => {
         }
       }
 
-      // No cached frame yet; do not call desktopCapturer on click.
-      // Return empty and rely on the background prewarm to populate shortly.
-      if (process.env.SMART_ASSISTANT_CAPTURE_DEBUG_TIMING === "true") {
-        log(`[CAPTURE] cache-miss return empty ${Date.now() - start} ms`);
+      // Always capture on click so the button works even when prewarm is disabled.
+      // Default behavior: instant full-screen capture via desktopCapturer.
+      // Optional: on Windows, use OS screen clip (user selects region) when explicitly requested.
+      let dataUrl: string;
+      if (process.platform === "win32" && (mode === "os" || mode === "clipboard")) {
+        dataUrl = await captureViaOsClipboard();
+      } else {
+        dataUrl = await captureFullScreenBase64(mainWin);
       }
-      return "";
+
+      if (process.env.SMART_ASSISTANT_CAPTURE_DEBUG_TIMING === "true") {
+        log(`[CAPTURE] click-capture total ${Date.now() - start} ms, bytes=${dataUrl.length}`);
+      }
+      return dataUrl;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       err("capture-screen failed:", message);

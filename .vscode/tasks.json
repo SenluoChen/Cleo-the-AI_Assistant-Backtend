@@ -6,6 +6,39 @@
 			"type": "shell",
 			"command": "$listenPid=(Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty OwningProcess); if ($listenPid) { Stop-Process -Id $listenPid -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 300 }; Set-Location 'C:\\Users\\Louis\\Visual Studio\\smart-assistant Backend'; node backend\\dist\\local-api.js",
 			"isBackground": true
+		},
+		{
+			"label": "Smoke check (backend+vite)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/health).Content; (Invoke-WebRequest -UseBasicParsing http://localhost:5173/).StatusCode"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Smoke check (backend+vite) [fixed]",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"try { $health=(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/health).Content } catch { $health=$null }; try { $status=(Invoke-WebRequest -UseBasicParsing http://localhost:5173/).StatusCode } catch { $status=$null }; Write-Output (\"health=\" + ($health ?? \"<fail>\")); Write-Output (\"viteStatus=\" + ($status ?? \"<fail>\")); if($health -and $status -eq 200){ exit 0 } else { exit 1 }"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "diag: check cleo processes",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$p=Get-Process Cleo -ErrorAction SilentlyContinue; if($null -eq $p){ '(none)' } else { $p | Select-Object Id,ProcessName | Format-Table -AutoSize | Out-String }"
+			],
+			"isBackground": false
 		}
 	]
 }

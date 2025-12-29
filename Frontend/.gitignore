@@ -1,6 +1,7 @@
 node_modules/
 dist/
 release/
+vendor/
 .env
 .env.production
 *.log

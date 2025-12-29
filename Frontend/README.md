@@ -23,6 +23,16 @@ Important variables:
 - `VITE_ANALYZE_URL` (defaults to `http://127.0.0.1:8787/analyze`)
   - Point this to wherever you run the backend.
 
+Performance-related (optional):
+
+- `SMART_ASSISTANT_CLIP_WATCH=true` to enable the background clipboard image watcher.
+  - Default is off (to avoid lag on some Windows setups with large clipboard images).
+
+Screenshot mode (optional):
+
+- Default: click Screenshot captures the current screen instantly.
+- `SMART_ASSISTANT_CAPTURE_MODE=os` to use the Windows screen-clip overlay (you select a region).
+
 ## Run (Dev)
 
 In one terminal:

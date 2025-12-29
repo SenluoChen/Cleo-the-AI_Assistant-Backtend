@@ -189,8 +189,8 @@ export function startCapturePrewarm(): void {
   // If capture mode is clipboard-only, do not run desktopCapturer in the background.
   if (process.env.SMART_ASSISTANT_CAPTURE_MODE === "clipboard") return;
 
-  // Default ON for instant-feel capture; allow opt-out.
-  if (process.env.SMART_ASSISTANT_CAPTURE_PREWARM === "false") return;
+  // Default OFF to avoid background CPU/GPU churn; enable explicitly.
+  if (process.env.SMART_ASSISTANT_CAPTURE_PREWARM !== "true") return;
 
   const intervalMs = clampInt(
     Number.parseInt(process.env.SMART_ASSISTANT_CAPTURE_PREWARM_INTERVAL_MS ?? "", 10) || 1200,

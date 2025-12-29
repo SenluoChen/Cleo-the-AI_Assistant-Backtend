@@ -16,8 +16,9 @@
     "build": "npm run build:vite && npm run build:electron",
     "build:vite": "vite build",
     "build:electron": "tsc -p tsconfig.node.json",
-    "build:dist": "npm run build && electron-builder",
-    "build:dir": "npm run build && electron-builder --dir",
+    "prepare-backend": "node scripts/sync-backend-dist.mjs",
+    "build:dist": "npm run prepare-backend && npm run build && electron-builder",
+    "build:dir": "npm run prepare-backend && npm run build && electron-builder --dir",
     "preview": "vite preview",
     "lint": "eslint src --ext .ts,.tsx,.js,.jsx",
     "lint:fix": "eslint src --ext .ts,.tsx,.js,.jsx --fix",
@@ -55,7 +56,9 @@
     "wait-on": "^7.2.0"
   },
   "dependencies": {
+    "aws-sdk": "^2.1692.0",
     "electron-log": "^5.0.1",
+    "openai": "^4.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
@@ -74,17 +77,27 @@
       "dist/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "vendor/backend-dist",
+        "to": "backend-dist"
+      }
+    ],
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh"
+    },
     "win": {
       "target": "nsis",
-      "icon": "build/icon.ico"
+      "signAndEditExecutable": false
     },
     "mac": {
-      "target": "dmg",
-      "icon": "build/icon.icns"
+      "target": "dmg"
     },
     "linux": {
-      "target": "AppImage",
-      "icon": "build/icon.png"
+      "target": "AppImage"
     }
   }
 }

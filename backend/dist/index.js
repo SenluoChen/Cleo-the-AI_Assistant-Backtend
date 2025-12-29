@@ -56,6 +56,43 @@ function sanitizeHistoryMessages(messages) {
         .filter((m) => m.content.trim().length > 0);
 }
 
+function getPositiveIntEnv(name, fallback) {
+    const raw = process.env[name];
+    if (!raw)
+        return fallback;
+    const n = Number.parseInt(String(raw), 10);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+// Bound how much chat history we send to the model to avoid runaway context.
+// Defaults:
+// - MAX_HISTORY_MESSAGES: 40 (roughly 20 user/assistant turns)
+// - MAX_HISTORY_CHARS: 12000 (soft budget across history content)
+function trimHistoryMessages(history) {
+    if (!Array.isArray(history) || history.length === 0)
+        return [];
+    const maxMessages = getPositiveIntEnv('MAX_HISTORY_MESSAGES', 40);
+    const maxChars = getPositiveIntEnv('MAX_HISTORY_CHARS', 12000);
+
+    let totalChars = 0;
+    const keptReversed = [];
+    for (let i = history.length - 1; i >= 0; i--) {
+        const m = history[i];
+        const content = typeof m?.content === 'string' ? m.content : String(m?.content ?? '');
+        const nextTotal = totalChars + content.length;
+
+        if (keptReversed.length >= maxMessages)
+            break;
+        // Always keep at least one message even if it exceeds the char budget.
+        if (nextTotal > maxChars && keptReversed.length > 0)
+            break;
+
+        totalChars = nextTotal;
+        keptReversed.push(m);
+    }
+    return keptReversed.reverse();
+}
+
 function normalizeImageDataUrl(image) {
     if (!image)
         return null;
@@ -109,7 +146,7 @@ export async function* streamAnswer(input) {
 
     const trimmedQuestion = typeof question === 'string' ? question.trim() : '';
     let userText = trimmedQuestion;
-    const historyCopy = [...history];
+    const historyCopy = [...trimHistoryMessages(history)];
 
     // If no explicit question, use the latest user message from history as the prompt.
     if (!userText) {
@@ -183,7 +220,7 @@ export const handler = async (event) => {
         const history = sanitizeHistoryMessages(messages);
         const trimmedQuestion = typeof question === 'string' ? question.trim() : '';
         let userText = trimmedQuestion;
-        const historyCopy = [...history];
+        const historyCopy = [...trimHistoryMessages(history)];
 
         if (!userText) {
             for (let i = historyCopy.length - 1; i >= 0; i--) {

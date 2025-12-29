@@ -29,16 +29,34 @@ const MessageBubble = memo(function MessageBubble({
     []
   );
 
+  const sanitizeStreamingForMarkdown = (raw: string) => {
+    if (!raw) return "";
+    let s = raw.replace(/(^|\n)#{1,6}\s+/g, "$1");
+    const fenceMatches = (s.match(/```/g) || []).length;
+    if (fenceMatches % 2 === 1) {
+      s = s.replace(/```([^`]*)$/s, (m) => m.replace(/```/g, "&#96;&#96;&#96;"));
+    }
+    s = s.replace(/(^|\n)[\-\*]\s*$/g, "$1");
+    return s;
+  };
+
+  const streamingClass = isStreaming ? " streaming" : "";
+
   return (
-    <div className={`bubble bubble--${message.role}`}>
+    <div className={`bubble bubble--${message.role}${streamingClass}`}>
       {isStreaming ? (
-        <span style={{ whiteSpace: "pre-wrap" }}>{message.content}</span>
+        <>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            {sanitizeStreamingForMarkdown(message.content ?? "")}
+          </ReactMarkdown>
+          <ThinkingBubble />
+          <span className="streaming-caret" aria-hidden />
+        </>
       ) : (
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
           {message.content}
         </ReactMarkdown>
       )}
-      {/* removed inline stream cursor to avoid duplicate loading indicators; thinking animation is used instead */}
     </div>
   );
 });
@@ -87,8 +105,7 @@ export default function ChatMessages() {
         const isStreaming = Boolean(pushing && isLast && msg.role === "assistant");
         return <MessageBubble key={`${msg.role}-${i}`} message={msg} isStreaming={isStreaming} />;
       })}
-
-      {pushing && <ThinkingBubble />}
+      {messages.length === 0 && pushing && <ThinkingBubble />}
     </div>
   );
 }

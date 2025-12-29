@@ -1,0 +1,63 @@
+name: Build and publish Windows installer
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: Frontend
+
+      - name: Build distribution
+        run: npm run build:dist
+        working-directory: Frontend
+
+      - name: Locate installer
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path Frontend\release -Filter "*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $exe) { Write-Error "Installer not found"; exit 1 }
+          Write-Output "Found installer: $($exe.FullName)"
+          "EXE_PATH=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
+
+      - name: Compute SHA256
+        shell: pwsh
+        run: |
+          $hash = Get-FileHash $env:EXE_PATH -Algorithm SHA256
+          Write-Output "SHA256=$($hash.Hash)"
+          "SHA256=$($hash.Hash)" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
+
+      - name: Prepare release assets
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $setup = Join-Path $env:RUNNER_TEMP ("Cleo-setup-$tag.exe")
+          Copy-Item -Force -LiteralPath $env:EXE_PATH -Destination $setup
+
+          $shaFile = Join-Path $env:RUNNER_TEMP ("Cleo-setup-$tag.sha256")
+          "$env:SHA256  Cleo-setup-$tag.exe" | Out-File -FilePath $shaFile -Encoding ascii
+
+          "SETUP_ASSET=$setup" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
+          "SHA256_ASSET=$shaFile" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
+
+      - name: Create GitHub release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.SETUP_ASSET }}
+            ${{ env.SHA256_ASSET }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
