@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "aws-sdk": "2.1692.0",
-    "openai": "4.104.0",
-    "smart-assistant": "file:.."
+    "openai": "4.104.0"
   }
 }

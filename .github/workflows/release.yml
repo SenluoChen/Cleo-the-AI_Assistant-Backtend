@@ -47,7 +47,10 @@ jobs:
           $sha256 = "$($exe.FullName).sha256"
 
           if (-not (Test-Path -LiteralPath $blockmap)) { Write-Error "Missing blockmap: $blockmap"; exit 1 }
-          if (-not (Test-Path -LiteralPath $sha256)) { Write-Error "Missing sha256: $sha256"; exit 1 }
+          if (-not (Test-Path -LiteralPath $sha256)) {
+            $hash = (Get-FileHash -LiteralPath $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($exe.Name)" | Set-Content -LiteralPath $sha256 -Encoding ascii
+          }
 
           "EXE_ASSET=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
           "BLOCKMAP_ASSET=$blockmap" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
