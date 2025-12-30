@@ -9,7 +9,7 @@ export function RobotHeadIcon({
 }) {
   return (
     <img
-      src="/cleo-logo.png"
+      src="cleo-logo.png"
       width={size}
       height={size}
       className={className}
