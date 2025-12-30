@@ -18,9 +18,9 @@ type BackendModule = {
 let backendModulePromise: Promise<BackendModule> | null = null;
 
 const getBackendIndexPath = (): string => {
-  // Packaged: backend-dist is shipped as extraResources (outside app.asar)
+  // Packaged: ship backend-dist inside app.asar so it can resolve app dependencies.
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, "backend-dist", "index.js");
+    return path.join(app.getAppPath(), "backend-dist", "index.js");
   }
 
   // Dev: allow running from this monorepo layout.

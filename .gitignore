@@ -24,4 +24,9 @@ backend/.env.*
 *.log
 *.tsbuildinfo
 
+# Local installer/runtime logs
+installed-logs/
+Frontend/installed-logs/
+cleo-log.txt
+
 node_modules

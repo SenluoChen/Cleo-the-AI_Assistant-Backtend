@@ -85,12 +85,16 @@
     ],
     "nsis": {
       "oneClick": false,
+      "runAfterFinish": false,
+      "installerIcon": "build/icons/installerIcon.ico",
+      "uninstallerIcon": "build/icons/uninstallerIcon.ico",
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "include": "build/installer.nsh"
     },
     "win": {
       "target": "nsis",
+      "icon": "build/icon.ico",
       "signAndEditExecutable": false
     },
     "mac": {

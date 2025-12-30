@@ -25,7 +25,7 @@
 			"args": [
 				"-NoProfile",
 				"-Command",
-				"try { $health=(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/health).Content } catch { $health=$null }; try { $status=(Invoke-WebRequest -UseBasicParsing http://localhost:5173/).StatusCode } catch { $status=$null }; Write-Output (\"health=\" + ($health ?? \"<fail>\")); Write-Output (\"viteStatus=\" + ($status ?? \"<fail>\")); if($health -and $status -eq 200){ exit 0 } else { exit 1 }"
+				"try { $health=(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/health).Content } catch { $health=$null }; try { $status=(Invoke-WebRequest -UseBasicParsing http://localhost:5173/).StatusCode } catch { $status=$null }; $healthText = if($null -ne $health){ $health } else { '<fail>' }; $statusText = if($null -ne $status){ $status } else { '<fail>' }; Write-Output ('health=' + $healthText); Write-Output ('viteStatus=' + $statusText); if($health -and $status -eq 200){ exit 0 } else { exit 1 }"
 			],
 			"isBackground": false
 		},
@@ -37,6 +37,17 @@
 				"-NoProfile",
 				"-Command",
 				"$p=Get-Process Cleo -ErrorAction SilentlyContinue; if($null -eq $p){ '(none)' } else { $p | Select-Object Id,ProcessName | Format-Table -AutoSize | Out-String }"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Frontend: tsc compile",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Set-Location 'C:\\Users\\Louis\\Visual Studio\\smart-assistant Backend\\Frontend'; node node_modules\\typescript\\bin\\tsc -p tsconfig.node.json --pretty false"
 			],
 			"isBackground": false
 		}

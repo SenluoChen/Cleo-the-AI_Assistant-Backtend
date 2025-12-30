@@ -1,9 +1,43 @@
-import AWS from 'aws-sdk';
-import OpenAI from 'openai';
+﻿// lazily import OpenAI only when needed
+let openAiPromise = null;
+async function getOpenAi() {
+    if (openAiPromise) return openAiPromise;
+    openAiPromise = (async () => {
+        try { const mod = await import('openai'); return mod?.default ?? mod; } catch { return null }
+    })();
+    return openAiPromise;
+}
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-const secrets = new AWS.SecretsManager();
+
+let awsSdkPromise = null;
+async function getAwsSdk() {
+    if (awsSdkPromise)
+        return awsSdkPromise;
+    awsSdkPromise = (async () => {
+        try {
+            const mod = await import('aws-sdk');
+            return mod?.default ?? mod;
+        }
+        catch {
+            return null;
+        }
+    })();
+    return awsSdkPromise;
+}
+
+let secrets = null;
+async function getSecretsManager() {
+    if (secrets)
+        return secrets;
+    const AWS = await getAwsSdk();
+    if (!AWS) {
+        throw new Error('aws-sdk is required when using OPENAI_SECRET_ID. For local use, set OPENAI_API_KEY to avoid AWS SecretsManager.');
+    }
+    secrets = new AWS.SecretsManager();
+    return secrets;
+}
 let client = null;
 async function getClient() {
     if (client)
@@ -34,7 +68,8 @@ async function getClient() {
     const secretId = process.env.OPENAI_SECRET_ID;
     if (!secretId)
         throw new Error('OPENAI_SECRET_ID is not configured (or set OPENAI_API_KEY for local dev)');
-    const sec = await secrets.getSecretValue({ SecretId: secretId }).promise();
+    const sm = await getSecretsManager();
+    const sec = await sm.getSecretValue({ SecretId: secretId }).promise();
     const parsed = JSON.parse(sec.SecretString || '{}');
     const key = parsed.OPENAI_API_KEY || parsed.OPENAI_KEY;
     if (!key)
@@ -281,3 +316,4 @@ const resp = (status, body) => ({
     headers: { "Content-Type": "application/json; charset=utf-8" },
     body: typeof body === "string" ? body : JSON.stringify(body),
 });
+

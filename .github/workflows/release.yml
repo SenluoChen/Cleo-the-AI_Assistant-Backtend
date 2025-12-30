@@ -20,6 +20,14 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+
+      - name: Build backend dist
+        run: npm run build
+        working-directory: backend
+
       - name: Install dependencies
         run: npm ci
         working-directory: Frontend
@@ -28,39 +36,29 @@ jobs:
         run: npm run build:dist
         working-directory: Frontend
 
-      - name: Locate installer
+      - name: Locate installer assets
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Path Frontend\release -Filter "*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if (-not $exe) { Write-Error "Installer not found"; exit 1 }
-          Write-Output "Found installer: $($exe.FullName)"
-          "EXE_PATH=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
+          $releaseDir = Join-Path $PWD "Frontend\release"
+          $exe = Get-ChildItem -Path $releaseDir -Filter "Cleo Setup *.exe" -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $exe) { Write-Error "Installer not found in $releaseDir"; exit 1 }
 
-      - name: Compute SHA256
-        shell: pwsh
-        run: |
-          $hash = Get-FileHash $env:EXE_PATH -Algorithm SHA256
-          Write-Output "SHA256=$($hash.Hash)"
-          "SHA256=$($hash.Hash)" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
+          $blockmap = "$($exe.FullName).blockmap"
+          $sha256 = "$($exe.FullName).sha256"
 
-      - name: Prepare release assets
-        shell: pwsh
-        run: |
-          $tag = "${{ github.ref_name }}"
-          $setup = Join-Path $env:RUNNER_TEMP ("Cleo-setup-$tag.exe")
-          Copy-Item -Force -LiteralPath $env:EXE_PATH -Destination $setup
+          if (-not (Test-Path -LiteralPath $blockmap)) { Write-Error "Missing blockmap: $blockmap"; exit 1 }
+          if (-not (Test-Path -LiteralPath $sha256)) { Write-Error "Missing sha256: $sha256"; exit 1 }
 
-          $shaFile = Join-Path $env:RUNNER_TEMP ("Cleo-setup-$tag.sha256")
-          "$env:SHA256  Cleo-setup-$tag.exe" | Out-File -FilePath $shaFile -Encoding ascii
-
-          "SETUP_ASSET=$setup" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
-          "SHA256_ASSET=$shaFile" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
+          "EXE_ASSET=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
+          "BLOCKMAP_ASSET=$blockmap" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
+          "SHA256_ASSET=$sha256" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
 
       - name: Create GitHub release and upload assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ env.SETUP_ASSET }}
+            ${{ env.EXE_ASSET }}
+            ${{ env.BLOCKMAP_ASSET }}
             ${{ env.SHA256_ASSET }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
