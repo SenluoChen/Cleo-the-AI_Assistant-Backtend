@@ -4,7 +4,15 @@
 		{
 			"label": "Restart backend (8787)",
 			"type": "shell",
-			"command": "$listenPid=(Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty OwningProcess); if ($listenPid) { Stop-Process -Id $listenPid -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 300 }; Set-Location 'C:\\Users\\Louis\\Visual Studio\\smart-assistant Backend'; node backend\\dist\\local-api.js",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$listenPid=(Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty OwningProcess); if ($listenPid) { Stop-Process -Id $listenPid -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 300 }; node backend\\dist\\local-api.js"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
 			"isBackground": true
 		},
 		{
@@ -24,8 +32,10 @@
 			"command": "powershell",
 			"args": [
 				"-NoProfile",
-				"-Command",
-				"try { $health=(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/health).Content } catch { $health=$null }; try { $status=(Invoke-WebRequest -UseBasicParsing http://localhost:5173/).StatusCode } catch { $status=$null }; $healthText = if($null -ne $health){ $health } else { '<fail>' }; $statusText = if($null -ne $status){ $status } else { '<fail>' }; Write-Output ('health=' + $healthText); Write-Output ('viteStatus=' + $statusText); if($health -and $status -eq 200){ exit 0 } else { exit 1 }"
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\.vscode\\smoke-check.ps1"
 			],
 			"isBackground": false
 		},
@@ -43,12 +53,17 @@
 		{
 			"label": "Frontend: tsc compile",
 			"type": "shell",
-			"command": "powershell",
+			"command": "node",
 			"args": [
-				"-NoProfile",
-				"-Command",
-				"Set-Location 'C:\\Users\\Louis\\Visual Studio\\smart-assistant Backend\\Frontend'; node node_modules\\typescript\\bin\\tsc -p tsconfig.node.json --pretty false"
+				"node_modules\\typescript\\bin\\tsc",
+				"-p",
+				"tsconfig.node.json",
+				"--pretty",
+				"false"
 			],
+			"options": {
+				"cwd": "${workspaceFolder}\\Frontend"
+			},
 			"isBackground": false
 		}
 	]

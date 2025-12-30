@@ -187,71 +187,81 @@ Write-Host ("IsAdmin: " + $isAdmin)
 $logsDir = New-LogsDir
 "LogsDir: $logsDir" | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
 
-if ($SimulateRunningApp) {
-  if (-not [string]::IsNullOrWhiteSpace($InstalledExePath) -and (Test-Path -LiteralPath $InstalledExePath)) {
-    Write-Host "Starting Cleo to simulate 'app running'..."
-    "Starting Cleo to simulate 'app running'..." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
-    Start-Process -FilePath $InstalledExePath | Out-Null
-    Start-Sleep -Seconds 2
+function Run-Installer {
+  if ($SimulateRunningApp) {
+    if (-not [string]::IsNullOrWhiteSpace($InstalledExePath) -and (Test-Path -LiteralPath $InstalledExePath)) {
+      Write-Host "Starting Cleo to simulate 'app running'..."
+      "Starting Cleo to simulate 'app running'..." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
+      Start-Process -FilePath $InstalledExePath | Out-Null
+      Start-Sleep -Seconds 2
+    } else {
+      Write-Host "Installed exe not found; skipping app-start simulation."
+      "Installed exe not found; skipping app-start simulation." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
+    }
+  }
+
+  if ($Silent) {
+    Write-Host "Running installer (/S) ..."
+    "Running installer (/S) ..." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
+    $p = Start-Process -FilePath $InstallerPath -ArgumentList '/S' -Wait -PassThru
   } else {
-    Write-Host "Installed exe not found; skipping app-start simulation."
-    "Installed exe not found; skipping app-start simulation." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
+    Write-Host "Running installer (interactive UI) ..."
+    "Running installer (interactive UI) ..." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
+    $p = Start-Process -FilePath $InstallerPath -Wait -PassThru
+  }
+  Write-Host "Installer exit code: $($p.ExitCode)"
+  "Installer exit code: $($p.ExitCode)" | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
+
+  if ($p.ExitCode -ne 0) {
+    throw "Installer failed with exit code: $($p.ExitCode)"
+  }
+
+  # After install, resolve installed path again in case it changed.
+  $InstalledExePath = Resolve-InstalledExePath
+  Write-Host "Post-install InstalledExePath: $InstalledExePath"
+  "Post-install InstalledExePath: $InstalledExePath" | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
+
+  Start-Sleep -Seconds 1
+  $cleos = Get-Process -Name 'Cleo' -ErrorAction SilentlyContinue
+  if ($null -ne $cleos) {
+    Write-Host "Cleo processes after installer:"
+    $cleos | Select-Object Id,ProcessName | Format-Table -AutoSize | Out-String | Write-Host
+    ($cleos | Select-Object Id,ProcessName | Format-Table -AutoSize | Out-String) | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
+  } else {
+    Write-Host "No Cleo processes after installer."
+    "No Cleo processes after installer." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
+  }
+
+  if (-not [string]::IsNullOrWhiteSpace($InstalledExePath) -and (Test-Path -LiteralPath $InstalledExePath)) {
+    Write-Host "Launching Cleo to validate backend health..."
+    "Launching Cleo to validate backend health..." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
+    $installDir = Split-Path -Parent $InstalledExePath
+    Start-Process -FilePath $InstalledExePath -WorkingDirectory $installDir -ArgumentList @('--enable-logging','--v=1') | Out-Null
+  } else {
+    "Installed Cleo.exe not found after install; cannot validate runtime health." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
+    throw "Installed Cleo.exe not found after install; cannot validate runtime health."
+  }
+
+  Write-Host "Waiting for backend /health ..."
+  "Waiting for backend /health ..." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
+  if (Wait-ForHealth) {
+    Write-Host "HEALTH_OK: http://127.0.0.1:8787/health"
+    "HEALTH_OK: http://127.0.0.1:8787/health" | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
+  } else {
+    "HEALTH_FAILED: http://127.0.0.1:8787/health" | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
+    throw "HEALTH_FAILED: http://127.0.0.1:8787/health did not return ok=true within timeout"
   }
 }
 
-if ($Silent) {
-  Write-Host "Running installer (/S) ..."
-  "Running installer (/S) ..." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
-  $p = Start-Process -FilePath $InstallerPath -ArgumentList '/S' -Wait -PassThru
-} else {
-  Write-Host "Running installer (interactive UI) ..."
-  "Running installer (interactive UI) ..." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
-  $p = Start-Process -FilePath $InstallerPath -Wait -PassThru
-}
-Write-Host "Installer exit code: $($p.ExitCode)"
-"Installer exit code: $($p.ExitCode)" | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
+$exitCode = 0
 
-if ($p.ExitCode -ne 0) {
-  throw "Installer failed with exit code: $($p.ExitCode)"
-}
-
-# After install, resolve installed path again in case it changed.
-$InstalledExePath = Resolve-InstalledExePath
-Write-Host "Post-install InstalledExePath: $InstalledExePath"
-"Post-install InstalledExePath: $InstalledExePath" | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
-
-Start-Sleep -Seconds 1
-$cleos = Get-Process -Name 'Cleo' -ErrorAction SilentlyContinue
-if ($null -ne $cleos) {
-  Write-Host "Cleo processes after installer:"
-  $cleos | Select-Object Id,ProcessName | Format-Table -AutoSize | Out-String | Write-Host
-  ($cleos | Select-Object Id,ProcessName | Format-Table -AutoSize | Out-String) | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
-} else {
-  Write-Host "No Cleo processes after installer."
-  "No Cleo processes after installer." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
-}
-
-if (-not [string]::IsNullOrWhiteSpace($InstalledExePath) -and (Test-Path -LiteralPath $InstalledExePath)) {
-  Write-Host "Launching Cleo to validate backend health..."
-  "Launching Cleo to validate backend health..." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
-  $installDir = Split-Path -Parent $InstalledExePath
-  Start-Process -FilePath $InstalledExePath -WorkingDirectory $installDir -ArgumentList @('--enable-logging','--v=1') | Out-Null
-} else {
-  "Installed Cleo.exe not found after install; cannot validate runtime health." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
+try {
+  Run-Installer
+} catch {
+  Write-Error $_
+  $exitCode = 2
+} finally {
   Collect-Logs -InstalledExePath $InstalledExePath -LogsDir $logsDir
-  throw "Installed Cleo.exe not found after install; cannot validate runtime health."
 }
 
-Write-Host "Waiting for backend /health ..."
-"Waiting for backend /health ..." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
-if (Wait-ForHealth) {
-  Write-Host "HEALTH_OK: http://127.0.0.1:8787/health"
-  "HEALTH_OK: http://127.0.0.1:8787/health" | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
-  Collect-Logs -InstalledExePath $InstalledExePath -LogsDir $logsDir
-} else {
-  "HEALTH_FAILED: http://127.0.0.1:8787/health" | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
-  Collect-Logs -InstalledExePath $InstalledExePath -LogsDir $logsDir
-  throw "HEALTH_FAILED: http://127.0.0.1:8787/health did not return ok=true within timeout"
-}
-
-exit 0
+exit $exitCode

@@ -29,4 +29,5 @@ installed-logs/
 Frontend/installed-logs/
 cleo-log.txt
 
-node_modules
+node_modules/
+backend/node_modules/

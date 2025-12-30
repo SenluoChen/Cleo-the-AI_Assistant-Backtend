@@ -5,6 +5,7 @@
   "description": "Local API server that proxies to OpenAI.",
   "type": "module",
   "scripts": {
+    "build": "node build.js",
     "dev": "node dist/local-api.js",
     "start": "node dist/local-api.js",
     "test:integration": "node dist/test-integration.js",
@@ -12,6 +13,7 @@
   },
   "dependencies": {
     "aws-sdk": "2.1692.0",
-    "openai": "4.104.0"
+    "openai": "4.104.0",
+    "smart-assistant": "file:.."
   }
 }

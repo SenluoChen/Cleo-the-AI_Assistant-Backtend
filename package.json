@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "Smart Assistant monorepo (Electron desktop + local API backend)",
   "scripts": {
+    "start": "npm run dev",
     "dev": "concurrently -k -r -n backend,frontend \"npm:dev:backend\" \"npm:dev:frontend\"",
     "dev:backend": "node backend/dist/local-api.js",
     "dev:frontend": "wait-on http://127.0.0.1:8787/health && npm --prefix Frontend run dev",
