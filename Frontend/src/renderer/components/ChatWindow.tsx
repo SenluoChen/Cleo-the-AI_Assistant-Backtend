@@ -154,9 +154,32 @@ export default function ChatWindow() {
       try {
         let buffer = "";
         let rafId: number | null = null;
+        let needsFlush = false;
+        let unsubPaused: (() => void) | null = null;
 
         const scheduleFlush = () => {
           if (rafId !== null) return;
+          // If stream is paused, defer flushing until resumed.
+          if (useUI.getState().streamPaused) {
+            needsFlush = true;
+            if (!unsubPaused) {
+              unsubPaused = useUI.subscribe((s) => s.streamPaused, (val) => {
+                if (!val) {
+                  // resumed
+                  if (needsFlush) {
+                    needsFlush = false;
+                    scheduleFlush();
+                  }
+                  if (unsubPaused) {
+                    unsubPaused();
+                    unsubPaused = null;
+                  }
+                }
+              });
+            }
+            return;
+          }
+
           rafId = window.requestAnimationFrame(() => {
             rafId = null;
             if (!buffer) return;
@@ -184,6 +207,10 @@ export default function ChatWindow() {
         setLastAssistantContent(`⚠️ Error: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
         setPushing(false);
+        if (unsubPaused) {
+          unsubPaused();
+          unsubPaused = null;
+        }
       }
     },
     [screenshot, addMessage, setScreenshot, setPushing, appendToLastAssistant, setLastAssistantContent]

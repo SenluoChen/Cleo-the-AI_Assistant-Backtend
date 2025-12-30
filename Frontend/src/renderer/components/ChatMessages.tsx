@@ -42,8 +42,11 @@ const MessageBubble = memo(function MessageBubble({
 
   const streamingClass = isStreaming ? " streaming" : "";
 
+  const streamPaused = useUI((s) => s.streamPaused);
+  const setStreamPaused = useUI((s) => s.setStreamPaused);
+
   return (
-    <div className={`bubble bubble--${message.role}${streamingClass}`}>
+    <div className={`bubble bubble--${message.role}${streamingClass} ${streamPaused && isStreaming ? "paused" : ""}`}>
       {isStreaming ? (
         <>
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
@@ -51,6 +54,17 @@ const MessageBubble = memo(function MessageBubble({
           </ReactMarkdown>
           <ThinkingBubble />
           <span className="streaming-caret" aria-hidden />
+          <button
+            type="button"
+            className={`stream-pause-btn ${streamPaused ? "is-paused" : ""}`}
+            aria-pressed={streamPaused}
+            aria-label={streamPaused ? "Resume" : "Pause"}
+            onClick={() => setStreamPaused(!streamPaused)}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+              <rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor" />
+            </svg>
+          </button>
         </>
       ) : (
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>

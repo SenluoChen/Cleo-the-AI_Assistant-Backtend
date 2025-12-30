@@ -40,6 +40,7 @@ interface UIState {
   screenshot?: string | null;
   pushing: boolean;
   pinned: boolean;
+  streamPaused: boolean;
 
   newConversation: () => void;
   loadConversation: (id: string) => void;
@@ -50,6 +51,7 @@ interface UIState {
   setScreenshot: (b64?: string | null) => void;
   setPushing: (v: boolean) => void;
   setPinned: (v: boolean) => void;
+  setStreamPaused: (v: boolean) => void;
 }
 
 export const useUI = create<UIState>()(
@@ -84,6 +86,7 @@ export const useUI = create<UIState>()(
         screenshot: null,
         pushing: false,
         pinned: false,
+        streamPaused: false,
 
         newConversation: () => {
           const id = makeId();
@@ -145,6 +148,7 @@ export const useUI = create<UIState>()(
         setScreenshot: (b64) => set(() => ({ screenshot: b64 })),
         setPushing: (v) => set(() => ({ pushing: v })),
         setPinned: (v) => set(() => ({ pinned: v })),
+        setStreamPaused: (v) => set(() => ({ streamPaused: v })),
       };
     },
     {

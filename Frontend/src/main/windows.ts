@@ -1,5 +1,18 @@
 import { BrowserWindow, screen } from "electron";
 import * as path from "path";
+import { existsSync } from "node:fs";
+
+const resolveAppIconPath = (): string => {
+  // windows.ts is only used in some entrypoints; keep icon resolution robust.
+  // __dirname will be dist/main at runtime, so dist/.. points at dist.
+  const distRoot = path.resolve(__dirname, "..");
+
+  // Packaged: public assets should be in dist/renderer.
+  // Dev: fall back to Frontend/public.
+  const packagedPath = path.join(distRoot, "renderer", "cleo-logo.png");
+  const devPath = path.resolve(distRoot, "..", "public", "cleo-logo.png");
+  return existsSync(packagedPath) ? packagedPath : devPath;
+};
 
 export function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -9,6 +22,7 @@ export function createMainWindow(): BrowserWindow {
     frame: false,
     transparent: false,
     backgroundColor: "#ffffff",
+    icon: resolveAppIconPath(),
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload-main.js"),
       contextIsolation: true,
@@ -41,6 +55,7 @@ export function createBubbleWindow(): BrowserWindow {
     alwaysOnTop: true,
     hasShadow: false,
     backgroundColor: "#00000000",
+    icon: resolveAppIconPath(),
     skipTaskbar: true,
     focusable: false,
     webPreferences: {

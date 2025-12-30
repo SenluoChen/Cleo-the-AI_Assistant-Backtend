@@ -236,6 +236,20 @@ const resolveDistPath = (...segments: string[]): string => {
   return path.join(distRoot, ...segments);
 };
 
+const resolveAppIconPath = (): string => {
+  // Prefer a PNG that matches the in-app floating logo. Electron will convert it to a native icon.
+  // - Packaged: the renderer bundle should include public assets under dist/renderer.
+  // - Dev: read directly from Frontend/public.
+  const packagedPath = resolveDistPath("renderer", "cleo-logo.png");
+  const devPath = path.resolve(distRoot, "..", "public", "cleo-logo.png");
+
+  if (app.isPackaged) {
+    return existsSync(packagedPath) ? packagedPath : devPath;
+  }
+
+  return existsSync(devPath) ? devPath : packagedPath;
+};
+
 const createMainWindow = (): BrowserWindow => {
   const win = new BrowserWindow({
     width: 900,
@@ -244,6 +258,7 @@ const createMainWindow = (): BrowserWindow => {
     frame: false,
     transparent: false,
     backgroundColor: "#ffffff",
+    icon: resolveAppIconPath(),
     webPreferences: {
       preload: resolveDistPath("preload", "preload-main.js"),
       contextIsolation: true,

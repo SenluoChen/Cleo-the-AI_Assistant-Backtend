@@ -873,3 +873,29 @@ body {
   50% { opacity: 0 }
   100% { opacity: 1 }
 }
+
+/* Pause button shown for streaming assistant bubbles */
+.stream-pause-btn {
+  position: absolute;
+  right: 10px;
+  top: 8px;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid rgba(148,163,184,0.06);
+  color: currentColor;
+  cursor: pointer;
+  transition: background 120ms ease, transform 120ms ease, opacity 120ms ease;
+}
+.stream-pause-btn:hover { background: rgba(0,0,0,0.06); transform: translateY(-1px); }
+.stream-pause-btn.is-paused { background: rgba(0,0,0,0.12); opacity: 0.9; }
+
+/* Paused bubble visual state */
+.bubble.paused { opacity: 0.7; }
+
+/* Ensure bubble has position relative so button can be absolutely positioned */
+.bubble { position: relative; }
