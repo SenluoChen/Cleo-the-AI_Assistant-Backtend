@@ -236,7 +236,16 @@ function Run-Installer {
     Write-Host "Launching Cleo to validate backend health..."
     "Launching Cleo to validate backend health..." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
     $installDir = Split-Path -Parent $InstalledExePath
-    Start-Process -FilePath $InstalledExePath -WorkingDirectory $installDir -ArgumentList @('--enable-logging','--v=1') | Out-Null
+
+    # Capture stdout/stderr to help debug embedded backend startup failures.
+    $stdoutPath = if (-not [string]::IsNullOrWhiteSpace($logsDir)) { (Join-Path $logsDir 'cleo-stdout.log') } else { '' }
+    $stderrPath = if (-not [string]::IsNullOrWhiteSpace($logsDir)) { (Join-Path $logsDir 'cleo-stderr.log') } else { '' }
+
+    if (-not [string]::IsNullOrWhiteSpace($stdoutPath) -and -not [string]::IsNullOrWhiteSpace($stderrPath)) {
+      Start-Process -FilePath $InstalledExePath -WorkingDirectory $installDir -ArgumentList @('--enable-logging','--v=1') -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath | Out-Null
+    } else {
+      Start-Process -FilePath $InstalledExePath -WorkingDirectory $installDir -ArgumentList @('--enable-logging','--v=1') | Out-Null
+    }
   } else {
     "Installed Cleo.exe not found after install; cannot validate runtime health." | Out-File -LiteralPath $LogPath -Append -Encoding UTF8
     throw "Installed Cleo.exe not found after install; cannot validate runtime health."

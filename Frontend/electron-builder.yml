@@ -6,10 +6,6 @@ directories:
 files:
   - dist/**/*
   - package.json
-  - from: vendor/backend-dist
-    to: backend-dist
-    filter:
-      - "**/*"
   - "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}"
   - "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}"
   - "!**/node_modules/*.d.ts"
@@ -21,6 +17,16 @@ files:
   - "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}"
   - "!**/{appveyor.yml,.travis.yml,circle.yml}"
   - "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
+
+extraResources:
+  - from: vendor/backend-dist
+    to: backend-dist
+    filter:
+      - "**/*"
+  - from: build/locales
+    to: locales
+    filter:
+      - "**/*"
 
 win:
   target:

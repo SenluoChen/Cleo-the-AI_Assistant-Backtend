@@ -7,6 +7,7 @@ import { type AnalyzePayload, type AnalyzeResponse } from "../common/schemas";
 const Channels = {
   TOGGLE_MAIN: "TOGGLE_MAIN",
   CLOSE_MAIN: "CLOSE_MAIN",
+  SET_OPENAI_KEY: "SET_OPENAI_KEY",
   SET_PIN_STATE: "SET_PIN_STATE",
   GET_PIN_STATE: "GET_PIN_STATE",
   PIN_STATE_UPDATED: "PIN_STATE_UPDATED",
@@ -42,6 +43,12 @@ const api = {
    */
   analyze: async (payload: AnalyzePayload): Promise<AnalyzeResponse> =>
     ipcRenderer.invoke("analyze", payload),
+
+  /**
+   * Save OpenAI API key for installed users (writes to userData/cleo.env).
+   */
+  setOpenAIKey: async (apiKey: string): Promise<boolean> =>
+    ipcRenderer.invoke(Channels.SET_OPENAI_KEY, apiKey),
 
   /**
    * 設定 pinned

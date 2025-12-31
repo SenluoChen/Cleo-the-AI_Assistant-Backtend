@@ -65,6 +65,36 @@
 				"cwd": "${workspaceFolder}\\Frontend"
 			},
 			"isBackground": false
+		},
+		{
+			"label": "Verify Cleo Install",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				"$ErrorActionPreference='Stop'; $default=Join-Path $env:LOCALAPPDATA 'Programs\\Cleo\\Cleo.exe'; if(Test-Path $default){ Write-Host \"Installed EXE (default): $default\"; exit 0 }; $candidates=@(Join-Path $env:ProgramFiles 'Cleo\\Cleo.exe', Join-Path ${env:ProgramFiles(x86)} 'Cleo\\Cleo.exe'); foreach($c in $candidates){ if($c -and (Test-Path $c)){ Write-Host \"Installed EXE: $c\"; exit 0 } }; Write-Host 'Default paths not found; searching under LocalAppData\\Programs...'; $found=Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Programs') -Filter 'Cleo.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 5 -ExpandProperty FullName; if($found){ $found | ForEach-Object { Write-Host \"Installed EXE (found): $_\" }; exit 0 }; throw 'Install finished but Cleo.exe not found in expected locations.'"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Verify Cleo Install (fixed)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				"& { $ErrorActionPreference='Stop'; $default = Join-Path $env:LOCALAPPDATA 'Programs\\Cleo\\Cleo.exe'; if (Test-Path $default) { Write-Host ('Installed EXE (default): ' + $default); exit 0 }; $candidates = @(); if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles 'Cleo\\Cleo.exe') }; if ($env:'ProgramFiles(x86)') { $candidates += (Join-Path $env:'ProgramFiles(x86)' 'Cleo\\Cleo.exe') }; foreach ($c in $candidates) { if ($c -and (Test-Path $c)) { Write-Host ('Installed EXE: ' + $c); exit 0 } }; Write-Host 'Default paths not found; searching under LocalAppData\\Programs...'; $found = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Programs') -Filter 'Cleo.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 5 -ExpandProperty FullName; if ($found) { $found | ForEach-Object { Write-Host ('Installed EXE (found): ' + $_) }; exit 0 }; throw 'Install finished but Cleo.exe not found in expected locations.' }"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
 		}
 	]
 }

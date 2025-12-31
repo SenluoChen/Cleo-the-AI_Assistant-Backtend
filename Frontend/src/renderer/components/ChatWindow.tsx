@@ -58,6 +58,42 @@ export default function ChatWindow() {
   const [pinning, setPinning] = useState(false);
   const [capturingScreenshot, setCapturingScreenshot] = useState(false);
 
+  const [showKeyPrompt, setShowKeyPrompt] = useState(false);
+  const [openAiKeyDraft, setOpenAiKeyDraft] = useState("");
+  const [keyPromptError, setKeyPromptError] = useState<string | null>(null);
+
+  const isOpenAiKeyError = (msg: string) => {
+    const m = msg.toLowerCase();
+    return (
+      m.includes("openai_api_key_invalid") ||
+      m.includes("openai_api_key_missing") ||
+      m.includes("incorrect api key") ||
+      m.includes("invalid api key") ||
+      m.includes("openai_secret_id is not configured")
+    );
+  };
+
+  const saveOpenAiKey = useCallback(async () => {
+    if (!window.api?.setOpenAIKey) {
+      setKeyPromptError("This build does not support setting keys.");
+      return;
+    }
+    const key = openAiKeyDraft.trim();
+    if (!key) {
+      setKeyPromptError("Please paste your API key.");
+      return;
+    }
+    setKeyPromptError(null);
+    try {
+      await window.api.setOpenAIKey(key);
+      setShowKeyPrompt(false);
+      setOpenAiKeyDraft("");
+      setLastAssistantContent("✅ OpenAI key saved. Please resend your message.");
+    } catch (e: unknown) {
+      setKeyPromptError(e instanceof Error ? e.message : String(e));
+    }
+  }, [openAiKeyDraft, setLastAssistantContent]);
+
   // --- Paste handler（支援貼圖片） ---
   const handlePaste = useCallback(
     async (event: ClipboardEvent<HTMLInputElement>) => {
@@ -204,7 +240,11 @@ export default function ChatWindow() {
           buffer = "";
         }
       } catch (error: unknown) {
-        setLastAssistantContent(`⚠️ Error: ${error instanceof Error ? error.message : String(error)}`);
+        const message = error instanceof Error ? error.message : String(error);
+        setLastAssistantContent(`⚠️ Error: ${message}`);
+        if (isOpenAiKeyError(message)) {
+          setShowKeyPrompt(true);
+        }
       } finally {
         setPushing(false);
         if (unsubPaused) {
@@ -287,6 +327,34 @@ export default function ChatWindow() {
 
       {/* Messages */}
       <ChatMessages />
+
+      {showKeyPrompt && (
+        <div className="chat-overlay" role="dialog" aria-modal="true" aria-label="Set OpenAI API key">
+          <div className="chat-overlay__panel">
+            <div className="chat-overlay__title">Set OpenAI API key</div>
+            <div className="chat-overlay__desc">
+              Paste your OpenAI API key to enable real responses in the installed app.
+              The key is saved to your user profile (userData/cleo.env).
+            </div>
+            <input
+              className="chat-overlay__input"
+              placeholder="sk-..."
+              value={openAiKeyDraft}
+              onChange={(e) => setOpenAiKeyDraft(e.target.value)}
+              autoFocus
+            />
+            {keyPromptError && <div className="chat-overlay__error">{keyPromptError}</div>}
+            <div className="chat-overlay__actions">
+              <button type="button" className="chat-overlay__btn" onClick={() => setShowKeyPrompt(false)}>
+                Cancel
+              </button>
+              <button type="button" className="chat-overlay__btn chat-overlay__btn--primary" onClick={() => void saveOpenAiKey()}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Composer */}
       <div className="chat-composer">

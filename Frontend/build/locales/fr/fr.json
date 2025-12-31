@@ -1,0 +1,15 @@
+{
+  "app": {
+    "name": "Cleo"
+  },
+  "ui": {
+    "open": "Ouvrir",
+    "close": "Fermer",
+    "settings": "Paramètres",
+    "quit": "Quitter"
+  },
+  "messages": {
+    "welcome": "Bonjour",
+    "loading": "Chargement..."
+  }
+}

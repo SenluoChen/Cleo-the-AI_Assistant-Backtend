@@ -7,9 +7,10 @@ export function RobotHeadIcon({
   size?: number;
   className?: string;
 }) {
+  const logoUrl = `${import.meta.env.BASE_URL}cleo-logo.png`;
   return (
     <img
-      src="cleo-logo.png"
+      src={logoUrl}
       width={size}
       height={size}
       className={className}

@@ -24,6 +24,11 @@ backend/.env.*
 *.log
 *.tsbuildinfo
 
+# Local dev artifacts (do not commit)
+Frontend/.vscode/
+Frontend/tsc_out.txt
+Frontend/build/installer-user.nsh.saved
+
 # Local installer/runtime logs
 installed-logs/
 Frontend/installed-logs/

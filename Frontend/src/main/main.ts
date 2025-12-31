@@ -34,7 +34,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { request } from "undici";
 import { log, err } from "./logger";
 import { spawn } from "node:child_process";
-import { startLocalApiServer, type LocalApiServerHandle } from "./local-api";
+import { resetEmbeddedBackendClient, startLocalApiServer, type LocalApiServerHandle } from "./local-api";
 
 const ensureDir = (dir: string) => {
   if (!existsSync(dir)) {
@@ -60,6 +60,100 @@ const baseUserDataRoot =
 const userDataPath = path.join(baseUserDataRoot, `SmartAssistantDesktop${getDevProfileSuffix()}`);
 ensureDir(userDataPath);
 app.setPath("userData", userDataPath);
+
+type EnvKey = "OPENAI_API_KEY" | "OPENAI_SECRET_ID" | "MOCK_OPENAI" | "LOCAL_API_PORT";
+
+const parseEnvText = (raw: string): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (const lineRaw of raw.split(/\r?\n/)) {
+    let line = lineRaw.trim();
+    if (!line) continue;
+    if (line.startsWith("#")) continue;
+    if (line.toLowerCase().startsWith("export ")) {
+      line = line.slice("export ".length).trim();
+    }
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (key) out[key] = value;
+  }
+  return out;
+};
+
+const tryLoadUserEnvFile = () => {
+  // In packaged apps, users often can't easily set per-launch env vars.
+  // Allow a simple env file under userData (NOT in the install directory).
+  const candidates = [path.join(userDataPath, "cleo.env"), path.join(userDataPath, ".env")];
+  for (const p of candidates) {
+    try {
+      if (!existsSync(p)) continue;
+      const parsed = parseEnvText(readFileSync(p, "utf8"));
+      const allowed: EnvKey[] = ["OPENAI_API_KEY", "OPENAI_SECRET_ID", "MOCK_OPENAI", "LOCAL_API_PORT"];
+      let applied = 0;
+      for (const k of allowed) {
+        const v = parsed[k];
+        if (v === undefined) continue;
+        if (process.env[k] !== undefined) continue;
+        process.env[k] = v;
+        applied++;
+      }
+      if (applied > 0) {
+        const hasKey = Boolean(process.env.OPENAI_API_KEY);
+        const keySuffix = hasKey ? String(process.env.OPENAI_API_KEY).slice(-4) : "";
+        log(`Loaded ${applied} env var(s) from ${p}. OPENAI_API_KEY=${hasKey ? `***${keySuffix}` : "(missing)"}`);
+      }
+      return;
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      err("Failed to load user env file:", message);
+    }
+  }
+};
+
+const writeUserEnvFile = (patch: Partial<Record<EnvKey, string>>) => {
+  const p = path.join(userDataPath, "cleo.env");
+  let existing: Record<string, string> = {};
+  try {
+    if (existsSync(p)) {
+      existing = parseEnvText(readFileSync(p, "utf8"));
+    }
+  } catch {
+    existing = {};
+  }
+
+  const merged: Record<string, string> = { ...existing };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) continue;
+    merged[k] = String(v);
+  }
+
+  const header = [
+    "# Cleo user env",
+    "# This file is stored under userData so installed users can configure keys.",
+    "# Lines are KEY=VALUE",
+    "",
+  ].join("\n");
+
+  const keysInOrder: string[] = ["OPENAI_API_KEY", "OPENAI_SECRET_ID", "MOCK_OPENAI", "LOCAL_API_PORT"];
+  const knownLines = keysInOrder
+    .filter((k) => merged[k] !== undefined)
+    .map((k) => `${k}=${merged[k]}`);
+
+  // Preserve any other custom keys (stable order).
+  const extraLines = Object.keys(merged)
+    .filter((k) => !keysInOrder.includes(k))
+    .sort()
+    .map((k) => `${k}=${merged[k]}`);
+
+  const content = header + [...knownLines, ...extraLines].join("\n") + "\n";
+  writeFileSync(p, content, "utf8");
+};
+
+tryLoadUserEnvFile();
 
 const settingsPath = path.join(userDataPath, "settings.json");
 
@@ -743,6 +837,28 @@ app.whenReady().then(() => {
     }
 
     return JSON.parse(text);
+  });
+
+  ipcMain.handle(Channels.SET_OPENAI_KEY, async (_event, apiKey: string) => {
+    const key = String(apiKey ?? "").trim();
+    // Minimal validation: don't accept obviously invalid values.
+    if (!key || key.length < 20 || !key.startsWith("sk-")) {
+      throw new Error("Invalid OpenAI API key format");
+    }
+
+    // Apply to current process so embedded backend picks it up immediately.
+    process.env.OPENAI_API_KEY = key;
+    process.env.MOCK_OPENAI = "false";
+
+    // Persist for future launches.
+    writeUserEnvFile({ OPENAI_API_KEY: key, MOCK_OPENAI: "false" });
+
+    // If the embedded backend already created a client with a bad key, reset it.
+    await resetEmbeddedBackendClient();
+
+    // Log only suffix to avoid leaking secrets.
+    log(`Updated OPENAI_API_KEY via IPC (***${key.slice(-4)})`);
+    return true;
   });
 
   ipcMain.handle(Channels.SET_PIN_STATE, (_event, pinned: boolean) => {

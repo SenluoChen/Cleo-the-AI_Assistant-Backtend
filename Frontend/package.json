@@ -13,12 +13,13 @@
     "start": "npm run build && electron .",
     "dev:renderer": "vite",
     "dev:electron": "wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
+    "gen:icons": "node scripts/gen-ico.mjs",
     "build": "npm run build:vite && npm run build:electron",
     "build:vite": "vite build",
     "build:electron": "tsc -p tsconfig.node.json",
     "prepare-backend": "node scripts/sync-backend-dist.mjs",
-    "build:dist": "npm run prepare-backend && npm run build && electron-builder",
-    "build:dir": "npm run prepare-backend && npm run build && electron-builder --dir",
+    "build:dist": "npm run gen:icons && npm run prepare-backend && npm run build && electron-builder",
+    "build:dir": "npm run gen:icons && npm run prepare-backend && npm run build && electron-builder --dir",
     "preview": "vite preview",
     "lint": "eslint src --ext .ts,.tsx,.js,.jsx",
     "lint:fix": "eslint src --ext .ts,.tsx,.js,.jsx --fix",
@@ -46,8 +47,11 @@
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
+    "jimp": "^1.6.0",
+    "png-to-ico": "^3.0.1",
     "prettier": "^3.1.1",
     "rimraf": "^5.0.5",
+    "sharp": "^0.34.5",
     "typescript": "5.3.3",
     "vite": "^5.0.8",
     "vite-plugin-electron": "^0.28.2",
@@ -76,12 +80,27 @@
     },
     "files": [
       "dist/**/*",
-      "package.json"
+      "package.json",
+      "!release{,/**}",
+      "!release*{,/**}",
+      "!**/release{,/**}",
+      "!**/release*{,/**}",
+      "!**/installed-logs{,/**}",
+      "!**/*.nsis.7z",
+      "!**/*.7z",
+      "!**/*.env",
+      "!**/.vscode{,/**}",
+      "!**/*.ts",
+      "!**/*.map"
     ],
     "extraResources": [
       {
         "from": "vendor/backend-dist",
         "to": "backend-dist"
+      },
+      {
+        "from": "build/locales",
+        "to": "locales"
       }
     ],
     "nsis": {
@@ -92,7 +111,7 @@
       "perMachine": false,
       "allowElevation": false,
       "allowToChangeInstallationDirectory": true,
-      "include": "build/installer.nsh"
+      "include": "build/installer-user.nsh"
     },
     "win": {
       "target": "nsis",

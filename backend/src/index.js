@@ -4,18 +4,60 @@
 // Keep this file as the canonical editable source; run `npm run build`
 // to copy it to dist/index.js used by the local-api.
 
-// lazily import OpenAI only when needed
-let openAiPromise = null;
-async function getOpenAi() {
-    if (openAiPromise) return openAiPromise;
-    openAiPromise = (async () => {
-        try { const mod = await import('openai'); return mod?.default ?? mod; } catch { return null }
-    })();
-    return openAiPromise;
-}
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+
+// lazily import OpenAI only when needed
+let openAiPromise = null;
+const require = createRequire(import.meta.url);
+
+async function tryImportOpenAi() {
+    // 1) Normal resolution (works in dev / when backend is under app.asar)
+    try {
+        const mod = await import('openai');
+        return mod?.default ?? mod;
+    }
+    catch {
+        // fall through
+    }
+
+    // 2) When running from resources/backend-dist, Node's resolver won't find app.asar/node_modules.
+    // Resolve explicitly against common Electron locations.
+    try {
+        const basePaths = [];
+
+        try {
+            if (process.cwd()) basePaths.push(process.cwd());
+        }
+        catch {
+            // ignore
+        }
+
+        // Electron provides process.resourcesPath in packaged apps.
+        const rp = process?.resourcesPath;
+        if (typeof rp === 'string' && rp.length > 0) {
+            basePaths.push(rp);
+            basePaths.push(path.join(rp, 'app.asar'));
+            basePaths.push(path.join(rp, 'app.asar.unpacked'));
+        }
+
+        const resolved = require.resolve('openai', { paths: basePaths });
+        const mod = await import(pathToFileURL(resolved).toString());
+        return mod?.default ?? mod;
+    }
+    catch {
+        return null;
+    }
+}
+
+async function getOpenAi() {
+    if (openAiPromise) return openAiPromise;
+    openAiPromise = (async () => await tryImportOpenAi())();
+    return openAiPromise;
+}
 
 let awsSdkPromise = null;
 async function getAwsSdk() {
@@ -45,6 +87,27 @@ async function getSecretsManager() {
     return secrets;
 }
 let client = null;
+export function resetClient() {
+    client = null;
+}
+
+function mapOpenAiAuthError(err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const lower = msg.toLowerCase();
+
+    // OpenAI SDK commonly returns messages like:
+    // "401 Incorrect API key provided: sk-... You can find your API key at ..."
+    if (lower.includes('incorrect api key') || lower.includes('invalid_api_key') || lower.includes('api key provided')) {
+        return { statusCode: 401, code: 'OPENAI_API_KEY_INVALID' };
+    }
+
+    // Missing credentials in our backend logic.
+    if (lower.includes('openai_secret_id is not configured') || lower.includes('openai_api_key not found')) {
+        return { statusCode: 400, code: 'OPENAI_API_KEY_MISSING' };
+    }
+
+    return null;
+}
 async function getClient() {
     if (client)
         return client;
@@ -170,7 +233,16 @@ function trySaveScreenshotToTemp(image) {
 }
 
 export async function* streamAnswer(input) {
-    const openai = await getClient();
+    let openai;
+    try {
+        openai = await getClient();
+    }
+    catch (e) {
+        const mapped = mapOpenAiAuthError(e);
+        if (mapped)
+            throw new Error(mapped.code);
+        throw e;
+    }
     const streamStart = Date.now();
     let seenFirstDelta = false;
     const system = [
@@ -227,24 +299,32 @@ export async function* streamAnswer(input) {
         return;
     }
 
-    const stream = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: promptMessages,
-        temperature: 0.2,
-        max_tokens: 600,
-        stream: true,
-    });
+    try {
+        const stream = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: promptMessages,
+            temperature: 0.2,
+            max_tokens: 600,
+            stream: true,
+        });
 
-    for await (const part of stream) {
-        const delta = part?.choices?.[0]?.delta?.content;
-        if (typeof delta === 'string' && delta.length > 0) {
-            if (!seenFirstDelta) {
-                seenFirstDelta = true;
-                const ttf = Date.now() - streamStart;
-                console.debug(`[STREAM] first-delta ${ttf} ms for question len=${String(question).length}`);
+        for await (const part of stream) {
+            const delta = part?.choices?.[0]?.delta?.content;
+            if (typeof delta === 'string' && delta.length > 0) {
+                if (!seenFirstDelta) {
+                    seenFirstDelta = true;
+                    const ttf = Date.now() - streamStart;
+                    console.debug(`[STREAM] first-delta ${ttf} ms for question len=${String(question).length}`);
+                }
+                yield delta;
             }
-            yield delta;
         }
+    }
+    catch (e) {
+        const mapped = mapOpenAiAuthError(e);
+        if (mapped)
+            throw new Error(mapped.code);
+        throw e;
     }
 }
 export const handler = async (event) => {
@@ -288,7 +368,16 @@ export const handler = async (event) => {
                 ],
             }
             : { role: 'user', content: userText };
-        const openai = await getClient();
+        let openai;
+        try {
+            openai = await getClient();
+        }
+        catch (e) {
+            const mapped = mapOpenAiAuthError(e);
+            if (mapped)
+                return resp(mapped.statusCode, { error: mapped.code });
+            throw e;
+        }
         const system = [
             "You are a helpful assistant.",
             "Reply in natural Traditional Chinese.",
@@ -296,18 +385,30 @@ export const handler = async (event) => {
             "Keep structure clean: use short sections and whitespace; avoid huge unbroken text blocks.",
         ].join("\n");
         const completionStart = Date.now();
-        const completion = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [{ role: "system", content: system }, ...historyCopy, userMessage],
-            temperature: 0.2,
-            max_tokens: 600,
-        });
+        let completion;
+        try {
+            completion = await openai.chat.completions.create({
+                model: "gpt-4o-mini",
+                messages: [{ role: "system", content: system }, ...historyCopy, userMessage],
+                temperature: 0.2,
+                max_tokens: 600,
+            });
+        }
+        catch (e) {
+            const mapped = mapOpenAiAuthError(e);
+            if (mapped)
+                return resp(mapped.statusCode, { error: mapped.code });
+            throw e;
+        }
         const completionMs = Date.now() - completionStart;
         const totalMs = Date.now() - start;
         console.debug(`[ANALYZE] completion ${completionMs} ms, total ${totalMs} ms`);
         return resp(200, { answer: completion.choices?.[0]?.message?.content ?? "", _timing: { completionMs, totalMs } });
     }
     catch (err) {
+        const mapped = mapOpenAiAuthError(err);
+        if (mapped)
+            return resp(mapped.statusCode, { error: mapped.code });
         console.error("Analyze error", err);
         const message = err instanceof Error ? err.message : "Unknown error";
         return resp(500, { error: message });

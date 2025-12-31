@@ -5,6 +5,7 @@ type RendererAPI = {
   toggleMain?: () => void;
   closeMain?: () => void;
   analyze: (payload: AnalyzePayload) => Promise<AnalyzeResponse>;
+  setOpenAIKey?: (apiKey: string) => Promise<boolean>;
   setPinned?: (pinned: boolean) => Promise<boolean>;
   getPinned?: () => Promise<boolean>;
   onPinState?: (listener: (pinned: boolean) => void) => () => void;

@@ -1,6 +1,7 @@
 import * as http from "node:http";
 import { pathToFileURL } from "node:url";
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { app } from "electron";
 
 type StreamAnswer = (input: unknown) => AsyncGenerator<string, void, void>;
@@ -13,14 +14,43 @@ type Handler = (evt: { body: string; headers: http.IncomingHttpHeaders; httpMeth
 type BackendModule = {
   streamAnswer: StreamAnswer;
   handler: Handler;
+  resetClient?: () => void;
 };
 
 let backendModulePromise: Promise<BackendModule> | null = null;
 
 const getBackendIndexPath = (): string => {
-  // Packaged: ship backend-dist inside app.asar so it can resolve app dependencies.
+  // Packaged: backend may be placed either inside app.asar or in resources/backend-dist
   if (app.isPackaged) {
-    return path.join(app.getAppPath(), "backend-dist", "index.js");
+    const candidates = [
+      path.join(process.resourcesPath, "backend-dist", "index.js"),
+      // Some builds (asarUnpack) place unpacked resources here.
+      path.join(process.resourcesPath, "app.asar.unpacked", "backend-dist", "index.js"),
+      path.join(app.getAppPath(), "backend-dist", "index.js")
+    ];
+    for (const c of candidates) {
+      try {
+        if (fs.existsSync(c)) return c;
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    const tried = candidates
+      .map((p) => {
+        let exists = false;
+        try {
+          exists = fs.existsSync(p);
+        } catch {
+          exists = false;
+        }
+        return `${p} (exists=${exists})`;
+      })
+      .join("; ");
+
+    throw new Error(
+      `Embedded backend not found. Tried: ${tried}`
+    );
   }
 
   // Dev: allow running from this monorepo layout.
@@ -96,9 +126,11 @@ export async function startLocalApiServer(opts?: { port?: number; host?: string;
   const port = Number.parseInt(String(opts?.port ?? process.env.LOCAL_API_PORT ?? process.env.PORT ?? "8787"), 10);
   const maxBodyBytes = Number.parseInt(String(opts?.maxBodyBytes ?? process.env.LOCAL_API_MAX_BODY_BYTES ?? ""), 10) || DEFAULT_MAX_BODY_BYTES;
 
-  // Ensure these are set similarly to backend local-api defaults.
+  // Default behavior:
+  // - Packaged apps: require users to set a key (no confusing MOCK_RESPONSE by default)
+  // - Dev: keep convenience auto-mock when key is missing
   if (process.env.MOCK_OPENAI === undefined) {
-    process.env.MOCK_OPENAI = process.env.OPENAI_API_KEY ? "false" : "true";
+    process.env.MOCK_OPENAI = app.isPackaged ? "false" : (process.env.OPENAI_API_KEY ? "false" : "true");
   }
   if (process.env.AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE === undefined) {
     process.env.AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE = "1";
@@ -118,7 +150,11 @@ export async function startLocalApiServer(opts?: { port?: number; host?: string;
       }
 
       if (req.method === "GET" && url.pathname === "/health") {
-        return sendJson(res, 200, { ok: true });
+        return sendJson(res, 200, {
+          ok: true,
+          hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
+          mockOpenAI: String(process.env.MOCK_OPENAI) === "true"
+        });
       }
 
       if (req.method !== "POST" || url.pathname !== "/analyze") {
@@ -225,4 +261,13 @@ export async function startLocalApiServer(opts?: { port?: number; host?: string;
         server.close(() => resolve());
       })
   };
+}
+
+export async function resetEmbeddedBackendClient(): Promise<void> {
+  const backend = await loadBackendModule();
+  try {
+    backend.resetClient?.();
+  } catch {
+    // ignore
+  }
 }
