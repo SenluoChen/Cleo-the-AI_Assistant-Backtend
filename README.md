@@ -2,8 +2,7 @@
 
 https://github.com/user-attachments/assets/8a4e3dea-6cff-4f6b-9878-2e69d40b07b3
 
-**-Cleo is a lightweight desktop AI assistant that helps users translate text, answer questions, and understand on-screen content in real time, especially useful for online teaching and instant learning support.**
----
+-Cleo is a lightweight desktop AI assistant that helps users translate text, answer questions, and understand on-screen content in real time, especially useful for online teaching and instant learning support.
 
 ## Features
 
