@@ -2,11 +2,7 @@
 
 https://github.com/user-attachments/assets/8a4e3dea-6cff-4f6b-9878-2e69d40b07b3
 
-
-- Cleo is a lightweight desktop assistant built to help with small, practical tasks such as answering questions, translating text, and analyzing what is currently on screen. The goal is to reduce friction by letting users interact with AI directly from their desktop, without opening a browser or copying content into another tool.
-
-- The project combines an Electron-based desktop application with a local or cloud-hosted Node.js API. It is designed for short, focused interactions rather than long chat sessions.
-
+**-Cleo is a lightweight desktop AI assistant that helps users translate text, answer questions, and understand on-screen content in real time, especially useful for online teaching and instant learning support.**
 ---
 
 ## Features
